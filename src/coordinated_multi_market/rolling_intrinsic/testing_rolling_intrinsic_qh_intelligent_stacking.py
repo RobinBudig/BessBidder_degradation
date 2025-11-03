@@ -13,13 +13,20 @@ load_dotenv()
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-POSTGRES_USERNAME = os.getenv("POSTGRES_USER")
-POSTGRES_DB_HOST = os.getenv("POSTGRES_DB_HOST")
+PASSWORD = os.getenv("SQL_PASSWORD")
+if PASSWORD:
+    password_for_url = f":{PASSWORD}"
+else:
+    password_for_url = ""
+
 THESIS_DB_NAME = os.getenv("POSTGRES_DB_NAME")
+POSTGRES_USER = os.getenv("POSTGRES_USER")
+POSTGRES_DB_HOST = os.getenv("POSTGRES_DB_HOST")
 
-CONNECTION = f"postgresql://{POSTGRES_USERNAME}@{POSTGRES_DB_HOST}/{THESIS_DB_NAME}"
-CONNECTION_ALCHEMY = f"postgresql://{POSTGRES_USERNAME}@{POSTGRES_DB_HOST}/{THESIS_DB_NAME}"
-
+CONNECTION = (
+    f"postgres://{POSTGRES_USER}{password_for_url}@{POSTGRES_DB_HOST}/{THESIS_DB_NAME}"
+)
+CONNECTION_ALCHEMY = f"postgresql://{POSTGRES_USER}{password_for_url}@{POSTGRES_DB_HOST}/{THESIS_DB_NAME}"
 conn = psycopg2.connect(CONNECTION)
 conn_alchemy = create_engine(CONNECTION_ALCHEMY)
 cursor = conn.cursor()
@@ -167,6 +174,8 @@ def run_optimization_quarterhours_repositioning(
     c_rate,
     roundtrip_eff,
     max_cycles,
+    threshold,
+    threshold_abs_min,
     discount_rate,
     prev_net_trades=pd.DataFrame(
         columns=["sum_buy", "sum_sell", "net_buy", "net_sell", "product"]

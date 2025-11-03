@@ -1,6 +1,7 @@
 import argparse
 import os
 import warnings
+print("[STACKING-H] using:", __file__)
 
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ from dotenv import load_dotenv
 from loguru import logger
 from pulp import PULP_CBC_CMD, LpMaximize, LpProblem, LpVariable, lpSum  # GUROBI,
 from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
 
 load_dotenv()
 
@@ -20,11 +22,14 @@ if PASSWORD:
 else:
     password_for_url = ""
 
+THESIS_DB_NAME = os.getenv("POSTGRES_DB_NAME")
+POSTGRES_USER = os.getenv("POSTGRES_USER")
+POSTGRES_DB_HOST = os.getenv("POSTGRES_DB_HOST")
 
-POSTGRES_DB_NAME = os.getenv("POSTGRES_DB_NAME")
-CONNECTION = f"postgres://elli{password_for_url}@127.0.0.1/{POSTGRES_DB_NAME}"
-CONNECTION_ALCHEMY = f"postgresql://elli{password_for_url}@127.0.0.1/{POSTGRES_DB_NAME}"
-
+CONNECTION = (
+    f"postgres://{POSTGRES_USER}{password_for_url}@{POSTGRES_DB_HOST}/{THESIS_DB_NAME}"
+)
+CONNECTION_ALCHEMY = f"postgresql://{POSTGRES_USER}{password_for_url}@{POSTGRES_DB_HOST}/{THESIS_DB_NAME}"
 conn = psycopg2.connect(CONNECTION)
 conn_alchemy = create_engine(CONNECTION_ALCHEMY)
 cursor = conn.cursor()
