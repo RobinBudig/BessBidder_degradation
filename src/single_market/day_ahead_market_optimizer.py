@@ -181,7 +181,7 @@ class DayAheadMarketOptimizationModel:
         # Solve the model
         # opt = SolverFactory("gurobi_direct")
         # opt = SolverFactory("glpk")
-        opt = SolverFactory("highs")
+        opt = SolverFactory("gurobi")
         results = opt.solve(self.model, tee=True)
 
         # Print results
