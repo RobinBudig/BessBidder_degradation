@@ -29,7 +29,7 @@ from src.coordinated_multi_market.learning_utils import (
     prepare_input_data,
     linear_schedule,
     orthogonal_weight_init,
-    CustomPPO,
+    # CustomPPO,
 )
 
 from src.shared.folder_versioning import create_new_dir_version
@@ -64,7 +64,7 @@ if __name__ == "__main__":
 
     # Drop problematic days known to break RI algorithm
     df_spot_train = df_spot_train[
-        ~df_spot_train.index.date.isin(
+        ~df_spot_train.index.normalize().isin(
             [pd.Timestamp("2020-11-15").date(), pd.Timestamp("2020-12-27").date()]
         )
     ]
