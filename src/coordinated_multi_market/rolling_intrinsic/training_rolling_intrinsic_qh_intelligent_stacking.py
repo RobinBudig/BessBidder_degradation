@@ -25,10 +25,13 @@ if PASSWORD:
 else:
     password_for_url = ""
 
-POSTGRES_DB_NAME = os.getenv("POSTGRES_DB_NAME")
-CONNECTION = f"postgres://elli{password_for_url}@127.0.0.1/{POSTGRES_DB_NAME}"
-CONNECTION_ALCHEMY = f"postgresql://elli{password_for_url}@127.0.0.1/{POSTGRES_DB_NAME}"
+THESIS_DB_NAME = os.getenv("POSTGRES_DB_NAME")
+POSTGRES_USER = os.getenv("POSTGRES_USER")
+POSTGRES_DB_HOST = os.getenv("POSTGRES_DB_HOST")
 
+CONNECTION = (
+    f"postgres://{POSTGRES_USER}{password_for_url}@{POSTGRES_DB_HOST}/{THESIS_DB_NAME}"
+)
 
 def get_average_prices(
     cursor, side, execution_time_start, execution_time_end, end_date, min_trades=10
