@@ -312,10 +312,10 @@ def run_optimization_quarterhours_repositioning(
     )
 
     # Solve the problem
-    # m_battery.solve(GUROBI(msg=0))
+    m_battery.solve(GUROBI(msg=0))
 
     # Solve the problem
-    m_battery.solve(PULP_CBC_CMD(msg=0))
+    #m_battery.solve(PULP_CBC_CMD(msg=0))
 
     # print(f"Status: {LpStatus[m_battery.status]}")
     # print(f"Objective value: {m_battery.objective.value()}")

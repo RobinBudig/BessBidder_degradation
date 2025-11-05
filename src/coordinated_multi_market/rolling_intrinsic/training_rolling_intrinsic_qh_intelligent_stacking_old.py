@@ -7,8 +7,7 @@ import pandas as pd
 import psycopg2
 from dotenv import load_dotenv
 from loguru import logger
-from pulp import PULP_CBC_CMD, LpMaximize, LpProblem, LpVariable, lpSum, GUROBI
-from gurobipy import Model, GRB, quicksum
+from pulp import PULP_CBC_CMD, LpMaximize, LpProblem, LpVariable, lpSum  # GUROBI,
 
 from src.shared.config import (
     COORDINATED_STACKED_RI_QH_TRAINING_OUTPUT_CSV,
@@ -321,10 +320,10 @@ def run_optimization_quarterhours_repositioning(
     )
 
     # Solve the problem
-    m_battery.solve(GUROBI(msg=0))
+    # m_battery.solve(GUROBI(msg=0))
 
     # Solve the problem
-    #m_battery.solve(PULP_CBC_CMD(msg=0))
+    m_battery.solve(PULP_CBC_CMD(msg=0))
 
     # print(f"Status: {LpStatus[m_battery.status]}")
     # print(f"Objective value: {m_battery.objective.value()}")
