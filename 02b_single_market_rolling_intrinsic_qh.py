@@ -11,7 +11,7 @@ from src.shared.config import (
     START,
     END,
 )
-from src.single_market.rolling_intrinsic import simulate_period
+from src.single_market.rolling_intrinsic_old import simulate_period
 
 load_dotenv()
 
