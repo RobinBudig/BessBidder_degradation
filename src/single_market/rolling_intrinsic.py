@@ -242,8 +242,8 @@ def run_optimization_quarterhours_repositioning(
     # Original objective component for cases where previous trades >= e
     original_obj = [
         (
-            current_sell_qh[i] * (prices_qh.loc[i, "price"] - e)
-            - current_buy_qh[i] * prices_qh.loc[i, "price"]
+            current_sell_qh[i] * (prices_qh.loc[i, "price"] - e -0.1)
+            - current_buy_qh[i] * prices_qh.loc[i, "price"] +0.1
         )
         * 1.0
         / 4.0
