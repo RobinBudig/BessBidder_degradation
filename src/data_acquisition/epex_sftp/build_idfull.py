@@ -1,5 +1,3 @@
-# D:\GitHub\BessBidder1\src\data_acquisition\epex_sftp\build_idfull.py
-
 import os
 import argparse
 import pandas as pd

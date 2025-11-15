@@ -137,8 +137,6 @@ def run_optimization_quarterhours_repositioning(
     c_rate,
     roundtrip_eff,
     max_cycles,
-    threshold,
-    threshold_abs_min,
     discount_rate,
     prev_net_trades=pd.DataFrame(
         columns=["sum_buy", "sum_sell", "net_buy", "net_sell", "product"]
@@ -200,6 +198,8 @@ def run_optimization_quarterhours_repositioning(
 
     e = 0.01
 
+    efficiency = roundtrip_eff**0.5
+
     # Objective function
     # Adjusted objective component for cases where previous trades < e
     adjusted_obj = [
@@ -208,25 +208,20 @@ def run_optimization_quarterhours_repositioning(
                 current_sell_qh[i]
                 * (
                     prices_qh_adj.loc[i, "price"]
-                    - max(
-                        abs((threshold / 100) * abs(prices_qh.loc[i, "price"])),
-                        threshold_abs_min,
-                    )
-                    / 2
+                    - 0.1 / 2  # assumed transaction costs per trade
                     - e
                 )
+                # * efficiency  # monetary efficiency consideration
             )
             - (
                 current_buy_qh[i]
                 * (
                     prices_qh_adj_buy.loc[i, "price"]
-                    + max(
-                        abs((threshold / 100) * abs(prices_qh.loc[i, "price"])),
-                        threshold_abs_min,
-                    )
-                    / 2
+                    + 0.1 / 2  # assumed transaction costs per trade
                     + e
                 )
+                
+                #/ efficiency  # monetary efficiency consideration
             )
         )
         * 1.0
@@ -242,8 +237,8 @@ def run_optimization_quarterhours_repositioning(
     # Original objective component for cases where previous trades >= e
     original_obj = [
         (
-            current_sell_qh[i] * (prices_qh.loc[i, "price"] - e -0.1)
-            - current_buy_qh[i] * prices_qh.loc[i, "price"] +0.1
+            current_sell_qh[i] * (prices_qh.loc[i, "price"] - e)
+            - current_buy_qh[i] * (prices_qh.loc[i, "price"] + e)
         )
         * 1.0
         / 4.0
@@ -261,13 +256,11 @@ def run_optimization_quarterhours_repositioning(
     # Constraints
     previous_index = prices_qh.index[0]
 
-    efficiency = roundtrip_eff**0.5
-
     for i in prices_qh.index[1:]:
         m_battery += (
             battery_soc[i]
             == battery_soc[previous_index]
-            + net_buy[previous_index] * efficiency * 1.0 / 4.0
+            + net_buy[previous_index] * efficiency *1.0 / 4.0
             - net_sell[previous_index] * 1.0 / 4.0 / efficiency,
             f"BatteryBalance_{i}",
         )
@@ -285,7 +278,7 @@ def run_optimization_quarterhours_repositioning(
             m_battery += net_buy[i] <= cap * c_rate, f"BuyRate_{i}"
             m_battery += net_sell[i] <= cap * c_rate, f"SellRate_{i}"
             m_battery += (
-                net_sell[i] * 1.0 / efficiency / 4.0 <= battery_soc[i],
+                net_sell[i] * 1.0 / efficiency  / 4.0 <= battery_soc[i],
                 f"SellVsSOC_{i}",
             )
 
@@ -314,8 +307,7 @@ def run_optimization_quarterhours_repositioning(
 
     # set efficiency as sqrt of roundtrip efficiency
     m_battery += (
-        lpSum(net_buy[i] * efficiency * 1.0 / 4.0 for i in prices_qh.index)
-        <= max_cycles * cap,
+        lpSum(net_buy[i] * efficiency * 1.0 / 4.0 for i in prices_qh.index) <= max_cycles * cap,
         "MaxCycles",
     )
 
@@ -624,16 +616,14 @@ def simulate_period(
                 try:
                     results, trades, profit = (
                         run_optimization_quarterhours_repositioning(
-                            prices_qh=vwap,
-                            execution_time=execution_time_start,
-                            cap=1,
-                            c_rate=c_rate,
-                            roundtrip_eff=roundtrip_eff,
-                            max_cycles=allowed_cycles,
-                            threshold=0.0,
-                            threshold_abs_min=0.1,
-                            discount_rate=discount_rate,
-                            prev_net_trades=net_trades,
+                            vwap,
+                            execution_time_start,
+                            1,
+                            c_rate,
+                            roundtrip_eff,
+                            allowed_cycles,
+                            discount_rate,
+                            net_trades,
                         )
                     )
                     # append trades to all_trades using concat
