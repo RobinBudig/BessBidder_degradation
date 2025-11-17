@@ -8,8 +8,13 @@ from pulp import GUROBI, PULP_CBC_CMD, LpMaximize, LpProblem, LpVariable, lpSum
 import psycopg2
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
+import time
 
 load_dotenv()
+
+PRECOMPUTED_VWAP_PATH = os.path.join("data", "precomputed_vwaps")
+
+
 
 PASSWORD = os.getenv("SQL_PASSWORD")
 if PASSWORD:
@@ -31,57 +36,73 @@ cursor = conn.cursor()
 cursor.execute("ROLLBACK")
 
 
-def get_average_prices(
-    side, execution_time_start, execution_time_end, end_date, min_trades=10
-):
-    # set start_of_day to end_date minus 1 day
-    start_of_day = pd.to_datetime(end_date) - pd.Timedelta(hours=2)
-
-    # set hour and minute to 0 (europe/berlin time)
-    start_of_day = start_of_day.replace(hour=0, minute=0)
-
-    end_of_day = start_of_day
-
-    end_of_day = end_of_day.replace(hour=23, minute=45)
-
-    table_name = "transactions_intraday_de"
-
-    # transform dates to work with str format
-    execution_time_start_str = execution_time_start.strftime("%Y-%m-%d %H:%M:%S")
-    execution_time_end_str = execution_time_end.strftime("%Y-%m-%d %H:%M:%S")
-    start_of_day_str = start_of_day.strftime("%Y-%m-%d %H:%M:%S")
-    end_date_str = end_date.strftime("%Y-%m-%d %H:%M:%S")
-
-    cursor.execute(
-        f"""
-        SELECT
-            deliverystart,
-            SUM(weighted_avg_price * volume) / SUM(volume) AS weighted_avg_price
-        FROM
-            {table_name}
-        WHERE
-            (executiontime BETWEEN '{execution_time_start_str}' AND '{execution_time_end_str}')
-            AND side = '{side}'
-            AND deliverystart >= '{start_of_day_str}'
-            AND deliverystart < '{end_date_str}'
-        GROUP BY
-            deliverystart
-        HAVING
-            SUM(trade_count) >= {min_trades};
+def load_vwap_matrix_for_day(current_day, base_path=PRECOMPUTED_VWAP_PATH):
     """
-    )
+    Lädt die vorcomputierte VWAP-Matrix für einen Tag aus einer Parquet-Datei.
 
-    result = cursor.fetchall()
+    Parquet-Format:
+        - index: bucket_end (Execution-Fenster-Ende)
+        - columns: deliverystart (Produkt)
+        - Werte: VWAP (float / NaN)
+    """
+    fname = os.path.join(base_path, f"vwaps_{current_day:%Y-%m-%d}.parquet")
 
-    df = pd.DataFrame(result, columns=["product", "price"])
+    if not os.path.exists(fname):
+        raise FileNotFoundError(f"VWAP-Parquet für {current_day:%Y-%m-%d} nicht gefunden: {fname}")
 
-    # set index to product
-    df.set_index("product", inplace=True)
+    matrix = pd.read_parquet(fname)
 
-    # set index to be all 15 minute intervals from start_of_day to end_of_day, filling missing values with NaN
-    df = df.reindex(pd.date_range(start_of_day, end_of_day, freq="15min"))
+    # Index / Columns wieder zu Timestamps machen
+    matrix.index = pd.to_datetime(matrix.index)
+    matrix.columns = pd.to_datetime(matrix.columns)
 
-    return df
+    # Falls noch keine Zeitzone dran ist, auf Europe/Berlin setzen
+    if matrix.index.tz is None:
+        matrix.index = matrix.index.tz_localize("Europe/Berlin")
+    if matrix.columns.tz is None:
+        matrix.columns = matrix.columns.tz_localize("Europe/Berlin")
+
+    return matrix
+
+
+
+
+def get_vwap_from_matrix_for_bucket(vwap_matrix, execution_time_end, end_date):
+    """
+    Holt aus der VWAP-Matrix die passende Zeile für ein bestimmtes execution_time_end
+    und formt sie in dasselbe Format wie get_average_prices(...):
+
+        DataFrame:
+            index: 15-Minuten-Intervalle von start_of_day bis end_of_day
+            Spalte: "price"
+
+    end_date ist wie im Original: das Ende des Betrachtungszeitraums (trading_end),
+    wird verwendet, um start_of_day / end_of_day zu bestimmen.
+    """
+
+    # start_of_day / end_of_day genauso wie in get_average_prices
+    start_of_day = pd.to_datetime(end_date) - pd.Timedelta(hours=2)
+    start_of_day = start_of_day.replace(hour=0, minute=0)
+    end_of_day = start_of_day.replace(hour=23, minute=45)
+
+    # Falls das Execution-Fenster nicht in der Matrix existiert:
+    if execution_time_end not in vwap_matrix.index:
+        idx = pd.date_range(start_of_day, end_of_day, freq="15min")
+        return pd.DataFrame(index=idx, columns=["price"], data=np.nan)
+
+    # Zeile für dieses execution_time_end holen
+    row = vwap_matrix.loc[execution_time_end]       # Series: index = deliverystart, values = vwap
+
+    # In DataFrame mit Spalte "price" verwandeln
+    vwap_df = row.to_frame(name="price")
+
+    # Sicherstellen, dass wir das vollständige 15-Minuten-Raster haben
+    full_index = pd.date_range(start_of_day, end_of_day, freq="15min")
+    vwap_df = vwap_df.reindex(full_index)
+
+    return vwap_df
+
+
 
 
 def get_prices_day(df, execution_time_start, day):
@@ -434,6 +455,7 @@ def simulate_period(
     roundtrip_eff,
     max_cycles,
     min_trades,
+    precomputed_vwap_path=PRECOMPUTED_VWAP_PATH
 ):
     log_message = (
         "Running Rolling intrinsic QH with the following parameters:\n"
@@ -522,6 +544,10 @@ def simulate_period(
 
         print("current_day: ", current_day)
 
+        db_time_total = 0.0
+        solver_time_total = 0.0
+        vwap_csv_time_total = 0.0  
+
         all_trades = pd.DataFrame(
             columns=["execution_time", "side", "quantity", "price", "product", "profit"]
         )
@@ -533,6 +559,14 @@ def simulate_period(
 
         print("trading_start: ", trading_start)
         print("trading_end: ", trading_end)
+
+        try:
+            vwap_matrix = load_vwap_matrix_for_day(current_day, base_path=precomputed_vwap_path)
+        except FileNotFoundError as e:
+            logger.warning(f"Keine vorcomputierten VWAPs für {current_day:%Y-%m-%d}: {e}")
+            # Tag überspringen und mit nächstem Tag weitermachen
+            current_day = current_day + pd.Timedelta(days=1) + pd.Timedelta(hours=2)
+            continue
 
         # set execution_time_start to trading_start
         execution_time_start = trading_start
@@ -556,57 +590,55 @@ def simulate_period(
         print("Allowed cycles: ", allowed_cycles)
 
         while execution_time_end < trading_end:
-            # get average price for BUY orders
-            vwap = get_average_prices(
-                "BUY",
-                execution_time_start,
-                execution_time_end,
-                trading_end,
-                min_trades=min_trades,
+            # -----------------------------------------
+            # VWAP aus vorcomputierter Matrix holen
+            # -----------------------------------------
+            t0 = time.perf_counter()
+            vwap = get_vwap_from_matrix_for_bucket(
+                vwap_matrix,
+                execution_time_end=execution_time_end,
+                end_date=trading_end,
             )
+            db_time_total += time.perf_counter() - t0  # "DB"-Zeit ist jetzt Datei-/Lookup-Zeit
 
+            # --- Optional: weiterhin VWAP-CSV pro Tag schreiben, wie bisher ---
             vwaps_for_logging = (
                 vwap.copy().rename(columns={"price": execution_time_end}).T
             )
             vwap_filename = os.path.join(
                 vwappath, "vwaps_" + current_day.strftime("%Y-%m-%d") + ".csv"
             )
+
+            t_csv0 = time.perf_counter()
             if not os.path.exists(vwap_filename):
                 vwaps_for_logging.to_csv(
-                    os.path.join(
-                        vwappath, "vwaps_" + current_day.strftime("%Y-%m-%d") + ".csv"
-                    ),
+                    vwap_filename,
                     mode="a",
                     header=True,
                     index=True,
                 )
-            elif os.path.exists(vwap_filename) and (
-                execution_time_start == trading_start
-            ):
+            elif os.path.exists(vwap_filename) and (execution_time_start == trading_start):
                 os.remove(vwap_filename)
                 vwaps_for_logging.to_csv(
-                    os.path.join(
-                        vwappath, "vwaps_" + current_day.strftime("%Y-%m-%d") + ".csv"
-                    ),
+                    vwap_filename,
                     mode="a",
                     header=False,
                     index=True,
                 )
             else:
                 vwaps_for_logging.to_csv(
-                    os.path.join(
-                        vwappath, "vwaps_" + current_day.strftime("%Y-%m-%d") + ".csv"
-                    ),
+                    vwap_filename,
                     mode="a",
                     header=False,
                     index=True,
                 )
+            vwap_csv_time_total += time.perf_counter() - t_csv0
+            # --- Ende CSV-Logging ---
 
             net_trades = get_net_trades(all_trades, trading_end)
 
             # if all vwap["price"] are NaN
             if vwap["price"].isnull().all():
-                # print("No trades in this quarter hour")
                 execution_time_start = execution_time_end
                 execution_time_end = execution_time_start + pd.Timedelta(
                     minutes=bucket_size
@@ -614,34 +646,33 @@ def simulate_period(
                 continue
             else:
                 try:
-                    results, trades, profit = (
-                        run_optimization_quarterhours_repositioning(
-                            vwap,
-                            execution_time_start,
-                            1,
-                            c_rate,
-                            roundtrip_eff,
-                            allowed_cycles,
-                            discount_rate,
-                            net_trades,
-                        )
+                    t_s0 = time.perf_counter()
+                    results, trades, profit = run_optimization_quarterhours_repositioning(
+                        vwap,
+                        execution_time_start,
+                        1,
+                        c_rate,
+                        roundtrip_eff,
+                        allowed_cycles,
+                        discount_rate,
+                        net_trades,
                     )
+                    solver_time_total += time.perf_counter() - t_s0
+
                     # append trades to all_trades using concat
                     all_trades = pd.concat([all_trades, trades])
-                except ValueError:  # TODO: see if ValueError is right
+                except ValueError:
                     print("Error in optimization")
                     print("execution_time_start: ", execution_time_start)
                     execution_time_start = execution_time_end
                     execution_time_end = execution_time_start + pd.Timedelta(
                         minutes=bucket_size
                     )
-
                     continue
 
             execution_time_start = execution_time_end
-            execution_time_end = execution_time_start + pd.Timedelta(
-                minutes=bucket_size
-            )
+            execution_time_end = execution_time_start + pd.Timedelta(minutes=bucket_size)
+
 
         # calculate daily_profit as sum of all_trades["profit"]
         daily_profit = all_trades["profit"].sum()
@@ -669,6 +700,11 @@ def simulate_period(
 
         # save profits.csv
         profits.to_csv(os.path.join(path, "profit.csv"), index=False)
+        
+        logger.info(f"DB-total time:       {db_time_total:.2f} s")
+        logger.info(f"Solver total time:   {solver_time_total:.2f} s")
+        logger.info(f"VWAP-CSV total time:      {vwap_csv_time_total:.2f} s")
+        logger.info(f"simulate_one_day: {current_day}")
 
         # set current day to current_day plus 1 day
         current_day = current_day + pd.Timedelta(days=1) + pd.Timedelta(hours=2)
