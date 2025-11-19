@@ -943,3 +943,4 @@ def simulate_days_stacked_quarterhourly_products(
         if days_left > 1:
             # set current day to current_day plus 1 day
             current_day = list_dates[current_index + 24]
+            

@@ -77,11 +77,16 @@ def precompute_vwaps_for_day(current_day, bucket_size, min_trades, output_path):
     # -------------------
     # 2. Bucket-Index bestimmen
     # -------------------
+    # Zuerst alles in UTC runden, dann zurück nach Europe/Berlin
+    et_utc = df["executiontime"].dt.tz_convert("UTC")
+
     df["bucket_end"] = (
-        df["executiontime"]
-        .dt.floor(f"{bucket_size}min")
+        et_utc.dt.floor(f"{bucket_size}min")
         + pd.Timedelta(minutes=bucket_size)
     )
+    # Bucket-Enden wieder in Europe/Berlin, damit sie zu trading_start/bucket_index passen
+    df["bucket_end"] = df["bucket_end"].dt.tz_convert("Europe/Berlin")
+
 
     # Alle möglichen Bucket-Enden
     bucket_index = pd.date_range(
@@ -133,12 +138,57 @@ def precompute_vwaps_for_day(current_day, bucket_size, min_trades, output_path):
 
 
 
-def precompute_range(start_day, end_day, bucket_size, min_trades, output_path):
-    d = start_day
-    while d < end_day:
-        precompute_vwaps_for_day(d, bucket_size, min_trades, output_path)
-        d += pd.Timedelta(days=1)
+def _get_existing_parquet_days(output_path):
+    """
+    Liest alle vorhandenen vwaps_YYYY-MM-DD.parquet Dateien im output_path ein
+    und gibt ein Set von datetime.date-Objekten zurück.
+    """
+    if not os.path.isdir(output_path):
+        return set()
 
+    existing_days = set()
+    for fname in os.listdir(output_path):
+        if fname.startswith("vwaps_") and fname.endswith(".parquet"):
+            date_str = fname[len("vwaps_"):-len(".parquet")]
+            try:
+                day = pd.to_datetime(date_str).date()
+                existing_days.add(day)
+            except Exception:
+                # Falls mal eine Datei nicht dem Schema entspricht, einfach ignorieren
+                continue
+    return existing_days
+
+
+def precompute_range(start_day, end_day, bucket_size, min_trades, output_path):
+    # 1. Existierende Dateien im Zielordner prüfen
+    existing_days = _get_existing_parquet_days(output_path)
+
+    start_date = start_day.date()
+    end_date   = end_day.date()
+
+    # 2. Falls schon Dateien existieren: ab dem Tag nach dem letzten vorhandenen weitermachen
+    if existing_days:
+        last_existing = max(d for d in existing_days if d >= start_date and d < end_date) \
+                        if any(d >= start_date and d < end_date for d in existing_days) \
+                        else None
+        if last_existing is not None:
+            resume_date = last_existing + pd.Timedelta(days=1)
+            # gleiche Zeitzone wie start_day
+            d = pd.Timestamp(resume_date, tz=start_day.tzinfo)
+            print(f"Starte nicht bei {start_day.date()}, "
+                  f"sondern fahre fort ab {d.date()} (letzte vorhandene Datei: {last_existing}).")
+        else:
+            d = start_day
+    else:
+        d = start_day
+
+    # 3. Tage bis end_day durchgehen und nur fehlende berechnen
+    while d < end_day:
+        if d.date() in existing_days:
+            print(f"Parquet für {d.date()} existiert bereits – überspringe.")
+        else:
+            precompute_vwaps_for_day(d, bucket_size, min_trades, output_path)
+        d += pd.Timedelta(days=1)
 
 
 if __name__ == "__main__":
@@ -152,5 +202,5 @@ if __name__ == "__main__":
         end_day=end,
         bucket_size=15,
         min_trades=10,
-        output_path = output_path
+        output_path=output_path,
     )

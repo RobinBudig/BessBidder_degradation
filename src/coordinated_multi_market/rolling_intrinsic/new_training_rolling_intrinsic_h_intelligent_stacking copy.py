@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 import time
 
+from typing import Optional
+
+
 load_dotenv()
 
 PRECOMPUTED_VWAP_PATH = os.path.join("data", "precomputed_vwaps")
@@ -22,28 +25,33 @@ def load_vwap_matrix_for_day(current_day, base_path=PRECOMPUTED_VWAP_PATH):
     Lädt die vorcomputierte VWAP-Matrix für einen Tag aus einer Parquet-Datei.
 
     Parquet-Format:
-        - index: bucket_end (Execution-Fenster-Ende)
-        - columns: deliverystart (Produkt)
+        - index: bucket_end (Execution-Fenster-Ende) als String
+        - columns: deliverystart (Produkt) als String
         - Werte: VWAP (float / NaN)
     """
     fname = os.path.join(base_path, f"vwaps_{current_day:%Y-%m-%d}.parquet")
 
     if not os.path.exists(fname):
-        raise FileNotFoundError(f"VWAP-Parquet für {current_day:%Y-%m-%d} nicht gefunden: {fname}")
+        raise FileNotFoundError(
+            f"VWAP-Parquet für {current_day:%Y-%m-%d} nicht gefunden: {fname}"
+        )
 
     matrix = pd.read_parquet(fname)
 
-    # Index / Columns wieder zu Timestamps machen
-    matrix.index = pd.to_datetime(matrix.index)
-    matrix.columns = pd.to_datetime(matrix.columns)
-
-    # Falls noch keine Zeitzone dran ist, auf Europe/Berlin setzen
-    if matrix.index.tz is None:
-        matrix.index = matrix.index.tz_localize("Europe/Berlin")
-    if matrix.columns.tz is None:
-        matrix.columns = matrix.columns.tz_localize("Europe/Berlin")
+    # Index / Columns wieder zu Timestamps machen (immer über UTC gehen)
+    # Strings wie "2021-03-27 00:15:00+01:00" -> UTC -> Europe/Berlin
+    matrix.index = (
+        pd.to_datetime(matrix.index, utc=True)
+        .tz_convert("Europe/Berlin")
+    )
+    matrix.columns = (
+        pd.to_datetime(matrix.columns, utc=True)
+        .tz_convert("Europe/Berlin")
+    )
 
     return matrix
+
+
 
 
 
@@ -99,6 +107,65 @@ def calculate_discounted_price(price, current_time, delivery_time, discount_rate
         discount_factor = np.exp(-(discount_rate / 100) * time_difference)
 
     return price * discount_factor
+
+
+
+
+def derive_day_ahead_trades_from_drl_output(
+    output: pd.DataFrame, current_day: pd.Timestamp
+) -> pd.DataFrame:
+    """
+    Leitet aus dem DRL-Output die Day-Ahead-Trades für current_day ab
+    und gibt sie im gleichen Format zurück wie Intraday-Trades:
+    Spalten: execution_time, side, quantity, price, product, profit
+    """
+    day_ahead_trades = {}
+
+    # Zeile(n) des DRL-Outputs für genau diesen Tag holen
+    # Erwartung: Index enthält current_day.date().isoformat() als Label
+    df = output.loc[current_day.date().isoformat()].copy().round(2)
+
+    # Nur Einträge mit tatsächlichem Trade
+    mask = df.capacity_trade != 0
+    df = df[mask]
+
+    # buy/sell + Betrag
+    df["side"] = ["buy" if x < 0 else "sell" for x in df.capacity_trade]
+    df["net_volume"] = [abs(x) for x in df.capacity_trade]
+
+    # Stundenprofit
+    df["profit"] = df.capacity_trade * df.epex_spot_60min_de_lu_eur_per_mwh
+
+    # time-Spalte in normaler Form
+    df.reset_index(inplace=True)
+
+    # Day-Ahead-Clearing: Vortag um 13:00
+    day_ahead_market_clearing = (current_day - pd.Timedelta(days=1)).replace(hour=13)
+
+    for _, row in df.iterrows():
+        # Stundenposition auf 4 Viertelstunden verteilen
+        product_indexes = pd.date_range(row["time"], periods=4, freq="15min")
+        for product_index in product_indexes:
+            day_ahead_trades.update(
+                {
+                    product_index: {
+                        "execution_time": day_ahead_market_clearing,
+                        "side": row["side"],
+                        "quantity": row["net_volume"],
+                        "price": row["epex_spot_60min_de_lu_eur_per_mwh"],
+                        "product": product_index,
+                        "profit": row["profit"] / 4,
+                    }
+                }
+            )
+
+    return pd.DataFrame(day_ahead_trades).T.reset_index(drop=True)
+
+
+
+
+
+
 
 
 def run_optimization_quarterhours_repositioning(
@@ -405,8 +472,10 @@ def simulate_period(
     roundtrip_eff,
     max_cycles,
     min_trades,
-    precomputed_vwap_path=PRECOMPUTED_VWAP_PATH
+    precomputed_vwap_path=PRECOMPUTED_VWAP_PATH,
+    drl_output: Optional[pd.DataFrame] = None,
 ):
+   
     log_message = (
         "Running Rolling intrinsic QH with the following parameters:\n"
         "Start Day: {start_day}\n"
@@ -429,232 +498,212 @@ def simulate_period(
     )
 
     logger.info(log_message)
-    year = start_day.year
 
-    # set path as ./ma_results/threshold
-    path = os.path.join(
-        "output",
-        "single_market",
-        "rolling_intrinsic",
-        "ri_basic",
-        "qh",
-        str(year),
-        "bs"
-        + str(bucket_size)
-        + "cr"
-        + str(c_rate)
-        + "rto"
-        + str(roundtrip_eff)
-        + "mc"
-        + str(max_cycles)
-        + "mt"
-        + str(min_trades),
-    )
-    tradepath = os.path.join(path, "trades")
-    vwappath = os.path.join(path, "vwap")
+    # Wie im Original: genau EIN Tag, current_day = start_day (auf 00:00 gesetzt)
+    current_day = start_day.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # create directory if it doesn't exist
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-    if not os.path.exists(tradepath):
-        os.makedirs(tradepath)
-
-    if not os.path.exists(vwappath):
-        os.makedirs(vwappath)
-
-    profitpath = os.path.join(path, "profit.csv")
-    # check if profits.csv exists in path
-    if os.path.exists(profitpath):
-        # read profits.csv
-        profits = pd.read_csv(profitpath)
-    else:
-        # create profits.csv
-        profits = pd.DataFrame(columns=["day", "profit", "cycles"])
-
-    if len(profits) > 0:
-        # set current_day to last "day" in profits.csv
-        current_day = (
-            pd.Timestamp(profits.iloc[-1]["day"], tz="Europe/Berlin")
-            + pd.Timedelta(days=1)
-            + pd.Timedelta(hours=2)
-        )
-        # set current_cycles to last "cycles" in profits.csv
-        current_cycles = profits.iloc[-1]["cycles"]
-    else:
-        current_day = start_day
-        current_cycles = 0
-
-    net_trades = pd.DataFrame(
-        columns=["sum_buy", "sum_sell", "net_buy", "net_sell", "product"]
+    # Trades-Sammel-DF (Day-Ahead + Intraday)
+    all_trades = pd.DataFrame(
+        columns=["execution_time", "side", "quantity", "price", "product", "profit"]
     )
 
-    while current_day < end_day:
-        current_day = current_day.replace(hour=0, minute=0, second=0, microsecond=0)
+    # DRL-Day-Ahead-Trades für diesen Tag ableiten (falls vorhanden)
+    day_ahead_trades_drl = None
+    if drl_output is not None:
+        try:
+            day_ahead_trades_drl = derive_day_ahead_trades_from_drl_output(
+                drl_output, current_day
+            )
+            all_trades = pd.concat([all_trades, day_ahead_trades_drl], ignore_index=True)
+        except KeyError:
+            # Kein DRL-Output für diesen Tag → ohne DA-Startposition
+            day_ahead_trades_drl = None
 
-        print("current_day: ", current_day)
+    # Zeitgrenzen (wie im Original)
+    gate_closure_day_ahead = current_day - pd.Timedelta(days=1) + pd.Timedelta(hours=13)
+    trading_start = current_day - pd.Timedelta(hours=8)
+    trading_end = current_day + pd.Timedelta(days=1)
 
-        db_time_total = 0.0
-        solver_time_total = 0.0
-        vwap_csv_time_total = 0.0  
+    execution_time_start = trading_start
+    execution_time_end = trading_start + pd.Timedelta(minutes=bucket_size)
 
-        all_trades = pd.DataFrame(
+    # VWAP-Matrix für diesen Tag laden
+    try:
+        vwap_matrix = load_vwap_matrix_for_day(current_day, base_path=precomputed_vwap_path)
+    except FileNotFoundError as e:
+        logger.warning(f"Keine vorcomputierten VWAPs für {current_day:%Y-%m-%d}: {e}")
+        # Rückgabe: leeres Reporting (wie create_quarterhourly_reporting bei leeren Trades)
+        empty_trades = pd.DataFrame(
             columns=["execution_time", "side", "quantity", "price", "product", "profit"]
         )
+        return create_quarterhourly_reporting(empty_trades, start_day=current_day)
 
-        # set trading_start to current_day minus 3 hours
-        trading_start = current_day - pd.Timedelta(hours=8)
-        # set trading_end to current_day plus 1 day
-        trading_end = current_day + pd.Timedelta(days=1)
+    # (optional) Zähler, falls du noch Debug/Timing machen willst
+    db_time_total = 0.0
+    solver_time_total = 0.0
+    vwap_csv_time_total = 0.0
 
-        print("trading_start: ", trading_start)
-        print("trading_end: ", trading_end)
+    # Solange Intraday-Trading-Fenster offen ist
+    while execution_time_end < trading_end:
+        # VWAP für dieses Bucket-Ende aus der Matrix holen
+        t0 = time.perf_counter()
+        vwap = get_vwap_from_matrix_for_bucket(
+            vwap_matrix,
+            execution_time_end=execution_time_end,
+            end_date=trading_end,
+        )
+        db_time_total += time.perf_counter() - t0
 
-        try:
-            vwap_matrix = load_vwap_matrix_for_day(current_day, base_path=precomputed_vwap_path)
-        except FileNotFoundError as e:
-            logger.warning(f"Keine vorcomputierten VWAPs für {current_day:%Y-%m-%d}: {e}")
-            # Tag überspringen und mit nächstem Tag weitermachen
-            current_day = current_day + pd.Timedelta(days=1) + pd.Timedelta(hours=2)
+        #Optional: Logging der VWAPs in CSV
+        # ----------------------------------------------------
+        # vwaps_for_logging = (
+        #     vwap.copy().rename(columns={"price": execution_time_end}).T
+        # )
+        # year = start_day.year
+        # path = os.path.join(
+        #     "output",
+        #     "single_market",
+        #     "rolling_intrinsic",
+        #     "ri_basic",
+        #     "qh",
+        #     str(year),
+        #     "bs"
+        #     + str(bucket_size)
+        #     + "cr"
+        #     + str(c_rate)
+        #     + "rto"
+        #     + str(roundtrip_eff)
+        #     + "mc"
+        #     + str(max_cycles)
+        #     + "mt"
+        #     + str(min_trades),
+        # )
+        # vwappath = os.path.join(path, "vwap")
+        # os.makedirs(vwappath, exist_ok=True)
+        # vwap_filename = os.path.join(
+        #     vwappath, "vwaps_" + current_day.strftime("%Y-%m-%d") + ".csv"
+        # )
+        #
+        # t_csv0 = time.perf_counter()
+        # if not os.path.exists(vwap_filename):
+        #     vwaps_for_logging.to_csv(
+        #         vwap_filename,
+        #         mode="a",
+        #         header=True,
+        #         index=True,
+        #     )
+        # elif os.path.exists(vwap_filename) and (execution_time_start == trading_start):
+        #     os.remove(vwap_filename)
+        #     vwaps_for_logging.to_csv(
+        #         vwap_filename,
+        #         mode="a",
+        #         header=False,
+        #         index=True,
+        #     )
+        # else:
+        #     vwaps_for_logging.to_csv(
+        #         vwap_filename,
+        #         mode="a",
+        #         header=False,
+        #         index=True,
+        #     )
+        # vwap_csv_time_total += time.perf_counter() - t_csv0
+        # ----------------------------------------------------
+
+        # Bisherige Netto-Positionen inkl. DA-Trades
+        net_trades = get_net_trades(all_trades, trading_end)
+
+        # Wenn für dieses Bucket gar keine VWAP-Preise vorhanden sind → weiter
+        if vwap["price"].isnull().all():
+            execution_time_start = execution_time_end
+            execution_time_end = execution_time_start + pd.Timedelta(
+                minutes=bucket_size
+            )
             continue
 
-        # set execution_time_start to trading_start
-        execution_time_start = trading_start
-        # set execution_time_end to trading_start plus 15 minutes
-        execution_time_end = trading_start + pd.Timedelta(minutes=bucket_size)
-
-        # calculate number of days until end_day
-        days_left = (end_day - current_day).days
-        days_done = (current_day - start_day).days
-
-        # allowed_cycles = max_cycles / 365 + (
-        #    (max_cycles / 365 * (365 - days_left)) - current_cycles
-        # )
-
-        allowed_cycles = 1 + max(0, days_done - current_cycles)
-
-        # allowed_cycles = (500 - current_cycles) / days_left
-
-        print("Days left: ", days_left)
-        print("Current cycles: ", current_cycles)
-        print("Allowed cycles: ", allowed_cycles)
-
-        while execution_time_end < trading_end:
-            # -----------------------------------------
-            # VWAP aus vorcomputierter Matrix holen
-            # -----------------------------------------
-            t0 = time.perf_counter()
-            vwap = get_vwap_from_matrix_for_bucket(
-                vwap_matrix,
-                execution_time_end=execution_time_end,
-                end_date=trading_end,
+        # Sonst Optimierung laufen lassen
+        try:
+            t_s0 = time.perf_counter()
+            results, trades, profit = run_optimization_quarterhours_repositioning(
+                vwap,
+                execution_time_start,
+                1,
+                c_rate,
+                roundtrip_eff,
+                max_cycles,
+                discount_rate,
+                net_trades,
             )
-            db_time_total += time.perf_counter() - t0  # "DB"-Zeit ist jetzt Datei-/Lookup-Zeit
+            solver_time_total += time.perf_counter() - t_s0
 
-            # --- Optional: weiterhin VWAP-CSV pro Tag schreiben, wie bisher ---
-            vwaps_for_logging = (
-                vwap.copy().rename(columns={"price": execution_time_end}).T
-            )
-            vwap_filename = os.path.join(
-                vwappath, "vwaps_" + current_day.strftime("%Y-%m-%d") + ".csv"
-            )
-
-            t_csv0 = time.perf_counter()
-            if not os.path.exists(vwap_filename):
-                vwaps_for_logging.to_csv(
-                    vwap_filename,
-                    mode="a",
-                    header=True,
-                    index=True,
-                )
-            elif os.path.exists(vwap_filename) and (execution_time_start == trading_start):
-                os.remove(vwap_filename)
-                vwaps_for_logging.to_csv(
-                    vwap_filename,
-                    mode="a",
-                    header=False,
-                    index=True,
-                )
-            else:
-                vwaps_for_logging.to_csv(
-                    vwap_filename,
-                    mode="a",
-                    header=False,
-                    index=True,
-                )
-            vwap_csv_time_total += time.perf_counter() - t_csv0
-            # --- Ende CSV-Logging ---
-
-            net_trades = get_net_trades(all_trades, trading_end)
-
-            # if all vwap["price"] are NaN
-            if vwap["price"].isnull().all():
-                execution_time_start = execution_time_end
-                execution_time_end = execution_time_start + pd.Timedelta(
-                    minutes=bucket_size
-                )
-                continue
-            else:
-                try:
-                    t_s0 = time.perf_counter()
-                    results, trades, profit = run_optimization_quarterhours_repositioning(
-                        vwap,
-                        execution_time_start,
-                        1,
-                        c_rate,
-                        roundtrip_eff,
-                        allowed_cycles,
-                        discount_rate,
-                        net_trades,
-                    )
-                    solver_time_total += time.perf_counter() - t_s0
-
-                    # append trades to all_trades using concat
-                    all_trades = pd.concat([all_trades, trades])
-                except ValueError:
-                    print("Error in optimization")
-                    print("execution_time_start: ", execution_time_start)
-                    execution_time_start = execution_time_end
-                    execution_time_end = execution_time_start + pd.Timedelta(
-                        minutes=bucket_size
-                    )
-                    continue
-
+            # neue Trades anhängen
+            all_trades = pd.concat([all_trades, trades], ignore_index=True)
+        except ValueError:
+            print("Error in optimization")
+            print("execution_time_start: ", execution_time_start)
             execution_time_start = execution_time_end
-            execution_time_end = execution_time_start + pd.Timedelta(minutes=bucket_size)
+            execution_time_end = execution_time_start + pd.Timedelta(
+                minutes=bucket_size
+            )
+            continue
+
+        # nächstes Bucket
+        execution_time_start = execution_time_end
+        execution_time_end = execution_time_start + pd.Timedelta(minutes=bucket_size)
+
+    # Day-Ahead-Trades für Reporting entfernen
+    if day_ahead_trades_drl is not None:
+        all_trades_reporting = all_trades[
+            all_trades["execution_time"] != gate_closure_day_ahead
+        ]
+    else:
+        all_trades_reporting = all_trades
+
+    # Reporting-DF im gleichen Format wie simulate_period_quarterhourly_products
+    reporting = create_quarterhourly_reporting(
+        all_trades=all_trades_reporting, start_day=current_day
+    )
+
+    return reporting
 
 
-        # calculate daily_profit as sum of all_trades["profit"]
-        daily_profit = all_trades["profit"].sum()
-
-        current_cycles += net_trades["net_buy"].sum() / 4.0 * roundtrip_eff**0.5
-
-        # save trades
-        all_trades.to_csv(
-            os.path.join(
-                tradepath, "trades_" + current_day.strftime("%Y-%m-%d") + ".csv"
-            ),
-            index=False,
+def create_quarterhourly_reporting(all_trades, start_day):
+    df = all_trades.copy()
+    if df.empty:
+        complete_index = pd.date_range(
+            start_day,
+            start_day + pd.Timedelta(days=1) - pd.Timedelta(minutes=15),
+            freq="15min",
         )
-
-        # append daily_profit to profits.csv using concat
-        profits = pd.concat(
-            [
-                profits,
-                pd.DataFrame(
-                    [[current_day, daily_profit, current_cycles]],
-                    columns=["day", "profit", "cycles"],
-                ),
-            ]
+        complete_df = pd.DataFrame(
+            index=complete_index, columns=["net_quantity", "vwap", "total_profit"]
         )
+        complete_df.index.name = "product"
+        complete_df.fillna(0, inplace=True)
+        return complete_df
 
-        # save profits.csv
-        profits.to_csv(os.path.join(path, "profit.csv"), index=False)
-        
-        logger.info(f"DB-total time:       {db_time_total:.2f} s")
-        logger.info(f"Solver total time:   {solver_time_total:.2f} s")
-        logger.info(f"VWAP-CSV total time:      {vwap_csv_time_total:.2f} s")
-        logger.info(f"simulate_one_day: {current_day}")
+    df["net_quantity"] = df.apply(
+        lambda x: -x["quantity"] if x["side"] == "buy" else x["quantity"], axis=1
+    )
+    net_quantity = df.groupby("product")["net_quantity"].sum() / 4
 
-        # set current day to current_day plus 1 day
-        current_day = current_day + pd.Timedelta(days=1) + pd.Timedelta(hours=2)
+    df["vwap"] = df["price"] * df["quantity"] / 4
+    vwap = df.groupby("product").apply(
+        lambda x: x["vwap"].sum() / x["quantity"].sum() / 4
+    )
+
+    total_profit = df.groupby("product")["profit"].sum()
+    summary = pd.DataFrame(
+        {"net_quantity": net_quantity, "vwap": vwap, "total_profit": total_profit}
+    )
+    summary = summary.reindex(
+        index=pd.date_range(
+            start_day,
+            start_day + pd.Timedelta(days=1) - pd.Timedelta(minutes=15),
+            freq="15min",
+        )
+    )
+    summary.index.name = "product"
+    summary.fillna(0, inplace=True)
+
+    return summary

@@ -16,6 +16,9 @@ from src.coordinated_multi_market.rolling_intrinsic.training_rolling_intrinsic_h
 from src.coordinated_multi_market.rolling_intrinsic.training_rolling_intrinsic_qh_intelligent_stacking import (
     simulate_period_quarterhourly_products,
 )
+from src.coordinated_multi_market.rolling_intrinsic.new_testing_rolling_intrinsic_h_intelligent_stacking import (
+    simulate_period,
+)
 from src.shared.config import BUCKET_SIZE, C_RATE, MAX_CYCLES_PER_DAY, MIN_TRADES, RTE
 
 
@@ -50,7 +53,6 @@ class CustomPPO(PPO):
         assert self._last_obs is not None, "No previous observation was provided"
         # Switch to eval mode (this affects batch norm / dropout)
         self.policy.set_training_mode(False)
-
         n_steps = 0
         rollout_buffer.reset()
         timestamp_buffer = np.zeros(2048)
@@ -234,18 +236,20 @@ class CustomPPO(PPO):
     ):
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future_stacked = executor.submit(
-                simulate_period_quarterhourly_products,
+                #simulate_period_quarterhourly_products,
+                simulate_period,
                 start_day=period_timestamps[0],
                 end_day=period_timestamps[0] + pd.Timedelta(days=1),
-                threshold=0,
-                threshold_abs_min=0,
+                #threshold=0,
+                # threshold_abs_min=0,
                 discount_rate=0,
                 bucket_size=BUCKET_SIZE,
                 c_rate=C_RATE,
                 roundtrip_eff=RTE,
                 max_cycles=MAX_CYCLES_PER_DAY,
                 min_trades=MIN_TRADES,
-                day_ahead_trades_drl=da_trades,
+                #day_ahead_trades_drl=da_trades,
+                drl_output=da_trades
             )
 
             # future_non_stacked = executor.submit(
