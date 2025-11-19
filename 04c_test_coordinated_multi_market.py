@@ -9,7 +9,7 @@ from src.coordinated_multi_market.learning_utils import load_input_data
 from src.coordinated_multi_market.basic_battery_dam_env import BasicBatteryDAM
 from src.coordinated_multi_market.custom_ppo import CustomPPO
 
-from src.coordinated_multi_market.rolling_intrinsic.testing_rolling_intrinsic_qh_intelligent_stacking import (
+from src.coordinated_multi_market.rolling_intrinsic.new_testing_rolling_intrinsic_qh_intelligent_stacking import (
     simulate_days_stacked_quarterhourly_products,
 )
 from src.shared.config import (

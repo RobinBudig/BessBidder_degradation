@@ -10,14 +10,16 @@ from stable_baselines3.common.utils import obs_as_tensor
 from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.ppo import PPO
 
-from src.coordinated_multi_market.rolling_intrinsic.training_rolling_intrinsic_h_intelligent_stacking import (
-    simulate_period_hourly_products,
+
+#from src.coordinated_multi_market.rolling_intrinsic.training_rolling_intrinsic_h_intelligent_stacking import (
+#    simulate_period_hourly_products,
+#)
+
+from src.coordinated_multi_market.rolling_intrinsic.new_training_rolling_intrinsic_qh_intelligent_stacking import (
+    simulate_days_stacked_quarterhourly_products,
 )
-from src.coordinated_multi_market.rolling_intrinsic.training_rolling_intrinsic_qh_intelligent_stacking import (
-    simulate_period_quarterhourly_products,
-)
-from src.coordinated_multi_market.rolling_intrinsic.new_testing_rolling_intrinsic_h_intelligent_stacking import (
-    simulate_period,
+from src.coordinated_multi_market.rolling_intrinsic.new_testing_rolling_intrinsic_qh_intelligent_stacking import (
+    simulate_days_stacked_quarterhourly_products,
 )
 from src.shared.config import BUCKET_SIZE, C_RATE, MAX_CYCLES_PER_DAY, MIN_TRADES, RTE
 
@@ -237,7 +239,7 @@ class CustomPPO(PPO):
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future_stacked = executor.submit(
                 #simulate_period_quarterhourly_products,
-                simulate_period,
+                simulate_days_stacked_quarterhourly_products,
                 start_day=period_timestamps[0],
                 end_day=period_timestamps[0] + pd.Timedelta(days=1),
                 #threshold=0,
