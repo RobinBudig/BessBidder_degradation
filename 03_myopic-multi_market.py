@@ -20,9 +20,17 @@ from loguru import logger
 #from src.coordinated_multi_market.rolling_intrinsic.testing_rolling_intrinsic_h_intelligent_stacking import (
 #    simulate_period_stacked_hourly_products,
 #)
-from src.coordinated_multi_market.rolling_intrinsic.new_testing_rolling_intrinsic_qh_intelligent_stacking import (
-    simulate_stacked_quarterhourly_products,
+"""
+from src.coordinated_multi_market.rolling_intrinsic.testing_rolling_intrinsic_qh_intelligent_stacking import (
+    simulate_period_stacked_quarterhourly_products,
 )
+"""
+
+from src.coordinated_multi_market.rolling_intrinsic.new_testing_rolling_intrinsic_qh_intelligent_stacking import (
+    simulate_days_stacked_quarterhourly_products,
+)
+
+
 from src.shared.config import (
     BUCKET_SIZE,
     C_RATE,
@@ -49,7 +57,7 @@ if __name__ == "__main__":
     )
 
     # Run the rolling intrinsic simulation with intelligent stacking (QH products)
-    simulate_stacked_quarterhourly_products(
+    simulate_days_stacked_quarterhourly_products(
         da_bids_path=INPUT_DIR_DA,
         output_path=ri_qh_output_path,
         start_day=START,

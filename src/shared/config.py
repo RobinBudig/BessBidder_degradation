@@ -17,7 +17,7 @@ MIN_TRADES = 10
 
 # Define model horizon
 START = pd.Timestamp(year=2019, month=10, day=25, tz="Europe/Berlin")
-END = pd.Timestamp(year=2019, month=11, day=30, tz="Europe/Berlin")
+END = pd.Timestamp(year=2019, month=12, day=31, tz="Europe/Berlin")
 
 # ----------------------------------------------
 # MODELLING CONFIGURATIONS

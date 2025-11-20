@@ -18,9 +18,7 @@ from stable_baselines3.ppo import PPO
 from src.coordinated_multi_market.rolling_intrinsic.new_training_rolling_intrinsic_qh_intelligent_stacking import (
     simulate_days_stacked_quarterhourly_products,
 )
-from src.coordinated_multi_market.rolling_intrinsic.new_testing_rolling_intrinsic_qh_intelligent_stacking import (
-    simulate_days_stacked_quarterhourly_products,
-)
+
 from src.shared.config import BUCKET_SIZE, C_RATE, MAX_CYCLES_PER_DAY, MIN_TRADES, RTE
 
 
@@ -375,7 +373,8 @@ class CustomPPO(PPO):
                                 "side": side,
                                 "quantity": net_volume,
                                 "price": price,
-                                "product": timestamps[idx],
+                                #"product": timestamps[idx],
+                                "product": product_index,
                                 "profit": profit / 4,
                             }
                         }

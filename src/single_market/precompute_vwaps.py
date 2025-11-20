@@ -120,9 +120,13 @@ def precompute_vwaps_for_day(current_day, bucket_size, min_trades, output_path):
 
     # Index/Columns vollständig machen
     matrix = matrix.reindex(index=bucket_index, columns=product_index)
-    
+
+    # WICHTIG:
+    # Index: als Datetime lassen (mit tz)
+    # Columns: in String
     matrix.index = matrix.index.astype(str)
     matrix.columns = matrix.columns.astype(str)
+    
 
     # -------------------
     # 5. Speichern
