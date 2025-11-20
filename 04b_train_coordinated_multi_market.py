@@ -47,7 +47,7 @@ from src.shared.config import (
 
 
 
-RESUME_TRAINING = True  # set to TRUE, if training should be continued from a checkpoint
+RESUME_TRAINING = False  # set to TRUE, if training should be continued from a checkpoint
 
 # Only relevant if RESUME_TRAINING = True
 MODEL_NUMBER = "8"  

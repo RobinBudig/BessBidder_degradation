@@ -51,44 +51,39 @@ class BasicBatteryDAM(gym.Env):
         self._total_profit = 0.0
 
     def _get_obs(self):
-
-        # ensure time step index is within bounds
-        idx = min(int(self._current_time_step), PERIOD_LENGTH - 1)
-
         # Calculate sine and cosine of the current time step
-        sin_time_step = np.sin(2 * np.pi * (idx % 24) / 24)
-        cos_time_step = np.cos(2 * np.pi * (idx % 24) / 24)
-
+        sin_time_step = np.sin(2 * np.pi * self._current_time_step / 24)
+        cos_time_step = np.cos(2 * np.pi * self._current_time_step / 24)
 
         # Calculate sine and cosine of month
         sin_month = np.sin(2 * np.pi * self._date_month / 12)
-        cos_month = np.cos(2 * np.pi * self._date_month / 12)
+        cos_month = np.sin(2 * np.pi * self._date_month / 12)
 
         return np.concatenate(
             (
-                np.float32(self._realized_quantity_t_minus_1),
-                np.float32(self._current_soc),
-                np.float32(self._remaining_cycles),
+                self._realized_quantity_t_minus_1,
+                self._current_soc,
+                self._remaining_cycles,
                 # encoded time
-                np.float32(sin_time_step),
-                np.float32(cos_time_step),
+                sin_time_step,
+                cos_time_step,
                 # hourly forecasts
-                np.float32(self._residual_load_forecast_scaled[idx]),
-                np.asarray(self._forecasted_price_vector_scaled, dtype=np.float32),
+                self._residual_load_forecast_scaled[self._current_time_step],
+                self._forecasted_price_vector_scaled,
                 # include avergae change per hour in forecasts
-                np.float32(self._delta_load_forecast[idx]),
-                np.float32(self._delta_pv_forecast_scaled[idx]),
-                np.float32(self._delta_wind_onshore_forecast_scaled[idx]),
-                np.float32(sin_month),
-                np.float32(cos_month),
-                np.float32(self._day_of_week),
+                self._delta_load_forecast[self._current_time_step],
+                self._delta_pv_forecast_scaled[self._current_time_step],
+                self._delta_wind_onshore_forecast_scaled[self._current_time_step],
+                sin_month,
+                cos_month,
+                self._day_of_week,
                 # get daily RE statistics
-                np.float32(self._wind_forecast_daily_mean),
-                np.float32(self._wind_forecast_daily_std),
-                np.float32(self._spread_id_full_da_mean),
-                np.float32(self._spread_id_full_da_std),
-                np.float32(self._spread_id_full_da_min),
-                np.float32(self._spread_id_full_da_max),
+                self._wind_forecast_daily_mean,
+                self._wind_forecast_daily_std,
+                self._spread_id_full_da_mean,
+                self._spread_id_full_da_std,
+                self._spread_id_full_da_min,
+                self._spread_id_full_da_max,
             ),
             axis=None,
             dtype=np.float32,
@@ -183,6 +178,9 @@ class BasicBatteryDAM(gym.Env):
                 # penalty because missed profit
                 penalty = self._current_soc * (85 / 24)
                 reward = -penalty
+        
+        # cast reward to float
+        reward = float(reward)
 
         self.log_data(
             modus=self._modus,
@@ -203,11 +201,6 @@ class BasicBatteryDAM(gym.Env):
             profit=profit,
         )
 
-        reward = float(reward)
-        terminated = bool((self._current_time_step == PERIOD_LENGTH) or game_over)
-        truncated = False
-        observation = self._get_obs().astype(np.float32, copy=False)
-
         return (
             observation,
             reward,
@@ -217,14 +210,12 @@ class BasicBatteryDAM(gym.Env):
         )
 
     def _get_info(self):
-        idx = min(int(self._current_time_step), PERIOD_LENGTH - 1)
-        ts_utc = pd.to_datetime(self._timestamps[idx], utc=True)
         return {
-            "timestamp": int(ts_utc.value),
-            "position": float(self._realized_quantity_t_minus_1),
-            "clearing_price": float(self._realized_price_vector[idx]),
-            "scaling_max_price": float(self._max_price_realized),
-            "scaling_min_price": float(self._min_price_realized),
+            "timestamp": self._timestamps[self._current_time_step].astype("int64"),
+            "position": self._realized_quantity_t_minus_1,
+            "clearing_price": self._realized_price_vector[self._current_time_step],
+            "scaling_max_price": self._max_price_realized,
+            "scaling_min_price": self._min_price_realized,
         }
 
     def close(self):
@@ -327,6 +318,9 @@ class BasicBatteryDAM(gym.Env):
         self._wind_onshore_forecast = self._input_data[self._random_day][
             "wind_onshore_forecast_d_minus_1_1000_de_lu_mw"
         ]
+        self._wind_offshore_forecast = self._input_data[self._random_day][
+            "wind_offshore_forecast_d_minus_1_1000_de_lu_mw"
+]
         self._load_forecast = self._input_data[self._random_day][
             "load_forecast_d_minus_1_1000_total_de_lu_mw"
         ]
@@ -334,7 +328,7 @@ class BasicBatteryDAM(gym.Env):
         self._residual_load_forecast = (
             self._load_forecast
             - self._wind_onshore_forecast
-            - self._pv_forecast
+            - self._wind_offshore_forecast
             - self._pv_forecast
         )
 

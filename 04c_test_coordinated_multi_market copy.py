@@ -61,7 +61,6 @@ if __name__ == "__main__":
         path=os.path.join(versioned_model_path, model_checkpoint + ".zip")
     )
 
-    # ---------- TEST-SET: RL-Läufe ----------
     for key, value in input_data_test.items():
         env = BasicBatteryDAM(
             modus="test",
@@ -83,11 +82,12 @@ if __name__ == "__main__":
         "Finished testing for period: df_spot_test (length %s)" % (len(df_spot_test))
     )
 
-    # evaluate_rl_model(os.path.join(versioned_log_path, TEST_CSV_NAME))
+    evaluate_rl_model(os.path.join(versioned_log_path, TEST_CSV_NAME))
     logger.info("Finished creating report of model behaviour")
 
-    # ---------- TEST-SET: Rolling Intrinsic ----------
-    ri_qh_output_path_test = os.path.join(   # <<< NEW: separat merken
+    # RI call with new test train data split
+
+    ri_qh_output_path = os.path.join(
         versioned_log_path,
         "rolling_intrinsic_intelligently_stacked_on_day_ahead_qh",
         "bs"
@@ -102,20 +102,10 @@ if __name__ == "__main__":
         + str(MIN_TRADES),
     )
 
-    # NEUER Aufruf: start_day / end_day anstatt list_dates  # <<< CHANGED
-    start_day_test = (
-        df_spot_test.index.min().tz_convert("Europe/Berlin").normalize()
-    )
-    end_day_test = (
-        df_spot_test.index.max().tz_convert("Europe/Berlin").normalize()
-        + pd.Timedelta(days=1)
-    )
-
     simulate_days_stacked_quarterhourly_products(
+        list_dates=df_spot_test.index.tz_convert("Europe/Berlin").tolist(),
         da_bids_path=os.path.join(versioned_log_path, TEST_CSV_NAME),
-        output_path=ri_qh_output_path_test,
-        start_day=start_day_test,
-        end_day=end_day_test,
+        output_path=ri_qh_output_path,
         discount_rate=0,
         bucket_size=BUCKET_SIZE,
         c_rate=C_RATE,
@@ -125,12 +115,16 @@ if __name__ == "__main__":
     )
 
     logger.info(
-        "Finished calculating intelligently stacked rolling intrinsic revenues with quarterhourly products (TEST)."
+        "Finished calculating intelligently stacked rolling intrinsic revenues with quarterhourly products."
     )
 
-    # profit.csv direkt aus dem oben definierten RI-Ordner lesen  # <<< CHANGED
+    # Check difference train and test reward
+
     test_advanced_drl_ri_qh = pd.read_csv(
-        os.path.join(ri_qh_output_path_test, "profit.csv")
+        os.path.join(
+            versioned_log_path,
+            "rolling_intrinsic_intelligently_stacked_on_day_ahead_qh/bs15cr1rto0.86mc365mt10/profit.csv",
+        )
     )
 
     mean_test_profit = (
@@ -139,16 +133,16 @@ if __name__ == "__main__":
 
     print("Test: ", mean_test_profit)
 
-    # ---------- TRAIN-SET: RL-Läufe ----------
+    # Evaluate train Set
     input_data_train = prepare_input_data(df_spot_train, versioned_scaler_path)
 
-    versioned_log_path_train = os.path.join(versioned_log_path, "train")  # <<< CHANGED
-    Path(versioned_log_path_train).mkdir(parents=True, exist_ok=True)
+    versioned_log_path = os.path.join(versioned_log_path, "train")
+    Path(versioned_log_path).mkdir(parents=True, exist_ok=True)
 
     for key, value in input_data_train.items():
         env = BasicBatteryDAM(
             modus="test",
-            logging_path=versioned_log_path_train,
+            logging_path=versioned_log_path,
             input_data={key: value},
         )
         env = DummyVecEnv([lambda: env])
@@ -163,16 +157,16 @@ if __name__ == "__main__":
         env.close()
 
     logger.info(
-        "Finished testing for period: df_spot_train (length %s)"  # <<< CHANGED Text
-        % (len(df_spot_train))
+        "Finished testing for period: df_spot_test (length %s)" % (len(df_spot_train))
     )
 
-    # evaluate_rl_model(os.path.join(versioned_log_path_train, TEST_CSV_NAME))
-    logger.info("Finished creating report of model behaviour (TRAIN)")
+    evaluate_rl_model(os.path.join(versioned_log_path, TEST_CSV_NAME))
+    logger.info("Finished creating report of model behaviour")
 
-    # ---------- TRAIN-SET: Rolling Intrinsic ----------
-    ri_qh_output_path_train = os.path.join(   # <<< NEW: eigener Pfad
-        versioned_log_path_train,
+    # RI call with new test train data split
+
+    ri_qh_output_path = os.path.join(
+        versioned_log_path,
         "rolling_intrinsic_intelligently_stacked_on_day_ahead_qh",
         "bs"
         + str(BUCKET_SIZE)
@@ -186,19 +180,10 @@ if __name__ == "__main__":
         + str(MIN_TRADES),
     )
 
-    start_day_train = (
-        df_spot_train.index.min().tz_convert("Europe/Berlin").normalize()
-    )
-    end_day_train = (
-        df_spot_train.index.max().tz_convert("Europe/Berlin").normalize()
-        + pd.Timedelta(days=1)
-    )
-
     simulate_days_stacked_quarterhourly_products(
-        da_bids_path=os.path.join(versioned_log_path_train, TEST_CSV_NAME),
-        output_path=ri_qh_output_path_train,
-        start_day=start_day_train,
-        end_day=end_day_train,
+        list_dates=df_spot_train.index.tz_convert("Europe/Berlin").tolist(),
+        da_bids_path=os.path.join(versioned_log_path, TEST_CSV_NAME),
+        output_path=ri_qh_output_path,
         discount_rate=0,
         bucket_size=BUCKET_SIZE,
         c_rate=C_RATE,
@@ -208,11 +193,14 @@ if __name__ == "__main__":
     )
 
     logger.info(
-        "Finished calculating intelligently stacked rolling intrinsic revenues with quarterhourly products (TRAIN)."
+        "Finished calculating intelligently stacked rolling intrinsic revenues with quarterhourly products."
     )
 
     train_advanced_drl_ri_qh = pd.read_csv(
-        os.path.join(ri_qh_output_path_train, "profit.csv")  # <<< CHANGED
+        os.path.join(
+            versioned_log_path,
+            "rolling_intrinsic_intelligently_stacked_on_day_ahead_qh/bs15cr1rto0.86mc365mt10/profit.csv",
+        )
     )
 
     mean_train_profit = (
