@@ -1,14 +1,15 @@
 import os
+import shutil
 from pathlib import Path
+
 import pandas as pd
 import torch
 from loguru import logger
 from stable_baselines3.common.vec_env import DummyVecEnv
-from src.coordinated_multi_market.learning_utils import load_input_data
 
+from src.coordinated_multi_market.learning_utils import load_input_data, prepare_input_data
 from src.coordinated_multi_market.basic_battery_dam_env import BasicBatteryDAM
 from src.coordinated_multi_market.custom_ppo import CustomPPO
-
 from src.coordinated_multi_market.rolling_intrinsic.new_testing_rolling_intrinsic_qh_intelligent_stacking import (
     simulate_days_stacked_quarterhourly_products,
 )
@@ -22,209 +23,354 @@ from src.shared.config import (
     RTE,
     SCALER_OUTPUT_PATH_COORDINATED,
     TEST_CSV_NAME,
+    VAL_START,
+    VAL_END,
 )
-from src.shared.evaluate_rl_model import evaluate_rl_model
 
-from src.coordinated_multi_market.learning_utils import (
-    prepare_input_data,
-)
+def _compute_series_stats(series: pd.Series):
+    """Hilfsfunktion: berechne total, mean, median, std, q95 und Sharpe (mean/std)."""
+    series = series.dropna()
+    if len(series) == 0:
+        return (None, None, None, None, None, None)
+
+    total = series.sum()
+    mean = series.mean()
+    median = series.median()
+    std = series.std(ddof=0)
+    q95 = series.quantile(0.95) if len(series) > 1 else series.iloc[0]
+    sharpe = mean / std if std and std > 0 else None
+
+    return total, mean, median, std, q95, sharpe
 
 
 if __name__ == "__main__":
 
-    # Specify to be analysed model
+    # -------- Parameter für die Validierung --------
     model_number = "0"
-    model_checkpoint = "ppo_stacked_checkpoint_250000_steps"
 
-    versioned_log_path = os.path.join(LOGGING_PATH_COORDINATED, model_number)
+    # Start-Checkpoint, ab dem validiert werden soll
+    # -> muss dem Namensschema aus dem Training entsprechen
+    start_checkpoint = "ppo_stacked_checkpoint_200000_steps"
+
+    # Schrittweite der Checkpoints in "Steps"
+    STEP_INCREMENT = 10000
+
+    # ------------------------------------------------
+
+    versioned_log_base_path = os.path.join(LOGGING_PATH_COORDINATED, model_number)
     versioned_model_path = os.path.join(MODEL_OUTPUT_PATH_COORDINATED, model_number)
     versioned_scaler_path = os.path.join(SCALER_OUTPUT_PATH_COORDINATED, model_number)
 
+    # Validation-Logs kommen in einen eigenen Unterordner
+    validation_root_path = os.path.join(versioned_log_base_path, "validation")
+    Path(validation_root_path).mkdir(parents=True, exist_ok=True)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Using device: %s" % device)
-    df_spot_train, df_spot_test = load_input_data(write_test=True)
 
-    # test if the 15.11 is in data and if delete it, because somehow this day repeatedly breaks the RI Algo
-    df_spot_train = df_spot_train[
-        (df_spot_train.index.date != pd.Timestamp("2020-11-15").date())
-    ]
-    df_spot_train = df_spot_train[
-        (df_spot_train.index.date != pd.Timestamp("2020-12-27").date())
-    ]
-    df_spot_test = df_spot_test[
-        (df_spot_test.index.date != pd.Timestamp("2020-12-31").date())
-    ]
-
-    input_data_test = prepare_input_data(df_spot_test, versioned_scaler_path)
-
-    model = CustomPPO.load(
-        path=os.path.join(versioned_model_path, model_checkpoint + ".zip")
-    )
-
-    # ---------- TEST-SET: RL-Läufe ----------
-    for key, value in input_data_test.items():
-        env = BasicBatteryDAM(
-            modus="test",
-            logging_path=versioned_log_path,
-            input_data={key: value},
-        )
-        env = DummyVecEnv([lambda: env])
-        obs = env.reset()
-
-        for _ in range(24):
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, done, info = env.step(action)
-            if done:
-                obs = env.reset()
-                break
-        env.close()
+    # ---- Daten laden & Validierungs-Set extrahieren ----
+    df_spot_train, df_spot_val, df_spot_test = load_input_data(write_test=False)
 
     logger.info(
-        "Finished testing for period: df_spot_test (length %s)" % (len(df_spot_test))
+        "Validation period: %s -> %s (len=%s)"
+        % (df_spot_val.index.min(), df_spot_val.index.max(), len(df_spot_val))
     )
 
-    # evaluate_rl_model(os.path.join(versioned_log_path, TEST_CSV_NAME))
-    logger.info("Finished creating report of model behaviour")
-
-    # ---------- TEST-SET: Rolling Intrinsic ----------
-    ri_qh_output_path_test = os.path.join(   # <<< NEW: separat merken
-        versioned_log_path,
-        "rolling_intrinsic_intelligently_stacked_on_day_ahead_qh",
-        "bs"
-        + str(BUCKET_SIZE)
-        + "cr"
-        + str(C_RATE)
-        + "rto"
-        + str(RTE)
-        + "mc"
-        + str(MAX_CYCLES_PER_YEAR)
-        + "mt"
-        + str(MIN_TRADES),
-    )
-
-    # NEUER Aufruf: start_day / end_day anstatt list_dates  # <<< CHANGED
-    start_day_test = (
-        df_spot_test.index.min().tz_convert("Europe/Berlin").normalize()
-    )
-    end_day_test = (
-        df_spot_test.index.max().tz_convert("Europe/Berlin").normalize()
-        + pd.Timedelta(days=1)
-    )
-
-    simulate_days_stacked_quarterhourly_products(
-        da_bids_path=os.path.join(versioned_log_path, TEST_CSV_NAME),
-        output_path=ri_qh_output_path_test,
-        start_day=start_day_test,
-        end_day=end_day_test,
-        discount_rate=0,
-        bucket_size=BUCKET_SIZE,
-        c_rate=C_RATE,
-        roundtrip_eff=RTE,
-        max_cycles=MAX_CYCLES_PER_YEAR,
-        min_trades=MIN_TRADES,
-    )
-
-    logger.info(
-        "Finished calculating intelligently stacked rolling intrinsic revenues with quarterhourly products (TEST)."
-    )
-
-    # profit.csv direkt aus dem oben definierten RI-Ordner lesen  # <<< CHANGED
-    test_advanced_drl_ri_qh = pd.read_csv(
-        os.path.join(ri_qh_output_path_test, "profit.csv")
-    )
-
-    mean_test_profit = (
-        test_advanced_drl_ri_qh.sort_values(by="day").reset_index()["profit"].mean()
-    )
-
-    print("Test: ", mean_test_profit)
-
-    # ---------- TRAIN-SET: RL-Läufe ----------
-    input_data_train = prepare_input_data(df_spot_train, versioned_scaler_path)
-
-    versioned_log_path_train = os.path.join(versioned_log_path, "train")  # <<< CHANGED
-    Path(versioned_log_path_train).mkdir(parents=True, exist_ok=True)
-
-    for key, value in input_data_train.items():
-        env = BasicBatteryDAM(
-            modus="test",
-            logging_path=versioned_log_path_train,
-            input_data={key: value},
-        )
-        env = DummyVecEnv([lambda: env])
-        obs = env.reset()
-
-        for _ in range(24):
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, done, info = env.step(action)
-            if done:
-                obs = env.reset()
-                break
-        env.close()
-
-    logger.info(
-        "Finished testing for period: df_spot_train (length %s)"  # <<< CHANGED Text
-        % (len(df_spot_train))
-    )
-
-    # evaluate_rl_model(os.path.join(versioned_log_path_train, TEST_CSV_NAME))
-    logger.info("Finished creating report of model behaviour (TRAIN)")
-
-    # ---------- TRAIN-SET: Rolling Intrinsic ----------
-    ri_qh_output_path_train = os.path.join(   # <<< NEW: eigener Pfad
-        versioned_log_path_train,
-        "rolling_intrinsic_intelligently_stacked_on_day_ahead_qh",
-        "bs"
-        + str(BUCKET_SIZE)
-        + "cr"
-        + str(C_RATE)
-        + "rto"
-        + str(RTE)
-        + "mc"
-        + str(MAX_CYCLES_PER_YEAR)
-        + "mt"
-        + str(MIN_TRADES),
-    )
-
-    start_day_train = (
-        df_spot_train.index.min().tz_convert("Europe/Berlin").normalize()
-    )
-    end_day_train = (
-        df_spot_train.index.max().tz_convert("Europe/Berlin").normalize()
-        + pd.Timedelta(days=1)
-    )
-
-    simulate_days_stacked_quarterhourly_products(
-        da_bids_path=os.path.join(versioned_log_path_train, TEST_CSV_NAME),
-        output_path=ri_qh_output_path_train,
-        start_day=start_day_train,
-        end_day=end_day_train,
-        discount_rate=0,
-        bucket_size=BUCKET_SIZE,
-        c_rate=C_RATE,
-        roundtrip_eff=RTE,
-        max_cycles=MAX_CYCLES_PER_YEAR,
-        min_trades=MIN_TRADES,
-    )
-
-    logger.info(
-        "Finished calculating intelligently stacked rolling intrinsic revenues with quarterhourly products (TRAIN)."
-    )
-
-    train_advanced_drl_ri_qh = pd.read_csv(
-        os.path.join(ri_qh_output_path_train, "profit.csv")  # <<< CHANGED
-    )
-
-    mean_train_profit = (
-        train_advanced_drl_ri_qh.sort_values(by="day").reset_index()["profit"].mean()
-    )
-
-    print("Average Profit of Test or Train set")
-    print("Test: ", mean_test_profit)
-    print("Train: ", mean_train_profit)
-
-    # wirte error if the train profit is more than 10% higher than the test profit
-    if mean_train_profit > 1.1 * mean_test_profit:
+    # ---- Checkpoint-Namensschema zerlegen ----
+    parts = start_checkpoint.split("_")
+    try:
+        start_steps = int(parts[-2])
+    except (ValueError, IndexError):
         raise ValueError(
-            f"Train profit {mean_train_profit} is more than 10% higher than test profit {mean_test_profit}, this points towards overfitting - Check!"
+            f"Kann Steps nicht aus Checkpoint-Namen '{start_checkpoint}' parsen. "
+            "Erwartetes Schema: <prefix>_<steps>_steps"
         )
+    checkpoint_prefix = "_".join(parts[:-2])  # z.B. "ppo_stacked_checkpoint"
+
+    logger.info(
+        f"Starte Validierung bei Checkpoint {start_checkpoint} "
+        f"(prefix='{checkpoint_prefix}', start_steps={start_steps}, increment={STEP_INCREMENT})"
+    )
+
+    # Summary-Datei für alle Validierungs-Ergebnisse
+    summary_path = os.path.join(validation_root_path, "validation_summary.csv")
+    if os.path.exists(summary_path):
+        validation_summary = pd.read_csv(summary_path)
+    else:
+        validation_summary = pd.DataFrame(
+            columns=[
+                "checkpoint_name",
+                "steps",
+                # RL metrics
+                "mean_rl_reward",
+                "total_rl_reward",
+                # RI total metrics (daily)
+                "num_days_ri",
+                "total_ri_profit",
+                "mean_ri_profit",
+                "median_ri_profit",
+                "std_ri_profit",
+                "q95_ri_profit",
+                "sharpe_ri",
+                # DA metrics
+                "total_dam_profit",
+                "mean_dam_profit",
+                "median_dam_profit",
+                "std_dam_profit",
+                "q95_dam_profit",
+                "sharpe_dam",
+                # IDC metrics
+                "total_idc_profit",
+                "mean_idc_profit",
+                "median_idc_profit",
+                "std_idc_profit",
+                "q95_idc_profit",
+                "sharpe_idc",
+            ]
+        )
+
+    # ---- Über Checkpoints iterieren ----
+    current_steps = start_steps
+
+    while True:
+        checkpoint_name = f"{checkpoint_prefix}_{current_steps}_steps"
+        checkpoint_file = os.path.join(versioned_model_path, checkpoint_name + ".zip")
+
+        if not os.path.exists(checkpoint_file):
+            logger.info(f"Checkpoint {checkpoint_file} existiert nicht. Breche Schleife ab.")
+            break
+
+        logger.info(f"Validiere Checkpoint: {checkpoint_name}")
+
+        # Pfad für diesen Checkpoint-Lauf
+        ckpt_log_path = os.path.join(validation_root_path, checkpoint_name)
+        Path(ckpt_log_path).mkdir(parents=True, exist_ok=True)
+
+        # ---- RL-Teil auf Validierungsdaten ----
+        model = CustomPPO.load(path=checkpoint_file)
+
+        input_data_val = prepare_input_data(df_spot_val, versioned_scaler_path)
+
+        for key, value in input_data_val.items():
+            env = BasicBatteryDAM(
+                modus="test",
+                logging_path=ckpt_log_path,
+                input_data={key: value},
+            )
+            env = DummyVecEnv([lambda: env])
+            obs = env.reset()
+
+            for _ in range(24):
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, done, info = env.step(action)
+                if done:
+                    obs = env.reset()
+                    break
+            env.close()
+
+        logger.info(
+            "Finished RL evaluation on validation set for checkpoint %s (len(df_spot_val)=%s)"
+            % (checkpoint_name, len(df_spot_val))
+        )
+
+        # ---- RL-Metriken aus behaviour_log.csv auslesen (falls vorhanden) ----
+        behaviour_path = os.path.join(ckpt_log_path, TEST_CSV_NAME)
+        mean_rl_reward = None
+        total_rl_reward = None
+
+        if os.path.exists(behaviour_path):
+            df_behaviour = pd.read_csv(behaviour_path)
+            if "reward" in df_behaviour.columns:
+                total_rl_reward = df_behaviour["reward"].sum()
+                mean_rl_reward = df_behaviour["reward"].mean()
+            else:
+                logger.warning(
+                    f"In {behaviour_path} keine 'reward'-Spalte gefunden. RL-Kennzahlen werden als NaN gesetzt."
+                )
+
+        # ---- RI-Teil auf Validierungsdaten ----
+        ri_qh_output_path_val = os.path.join(
+            ckpt_log_path,
+            "rolling_intrinsic_intelligently_stacked_on_day_ahead_qh",
+            "bs"
+            + str(BUCKET_SIZE)
+            + "cr"
+            + str(C_RATE)
+            + "rto"
+            + str(RTE)
+            + "mc"
+            + str(MAX_CYCLES_PER_YEAR)
+            + "mt"
+            + str(MIN_TRADES),
+        )
+
+        # Output-Verzeichnis für RI leeren, um Resume-Effekte zu vermeiden
+        if os.path.exists(ri_qh_output_path_val):
+            shutil.rmtree(ri_qh_output_path_val)
+
+        simulate_days_stacked_quarterhourly_products(
+            da_bids_path=behaviour_path,
+            output_path=ri_qh_output_path_val,
+            start_day=VAL_START,
+            end_day=VAL_END,
+            discount_rate=0,
+            bucket_size=BUCKET_SIZE,
+            c_rate=C_RATE,
+            roundtrip_eff=RTE,
+            max_cycles=MAX_CYCLES_PER_YEAR,
+            min_trades=MIN_TRADES,
+        )
+
+        logger.info(
+            "Finished RI calculation on validation set for checkpoint %s."
+            % checkpoint_name
+        )
+
+        # ---- RI-Profite und DA/IDC-Split auslesen ----
+        profit_csv_path = os.path.join(ri_qh_output_path_val, "profit.csv")
+        trades_path = os.path.join(ri_qh_output_path_val, "trades")
+
+        num_days_ri = 0
+        total_ri_profit = mean_ri_profit = median_ri_profit = std_ri_profit = q95_ri_profit = sharpe_ri = None
+        total_dam_profit = mean_dam_profit = median_dam_profit = std_dam_profit = q95_dam_profit = sharpe_dam = None
+        total_idc_profit = mean_idc_profit = median_idc_profit = std_idc_profit = q95_idc_profit = sharpe_idc = None
+
+        if os.path.exists(profit_csv_path):
+            df_profit = pd.read_csv(profit_csv_path)
+            df_profit = df_profit.sort_values(by="day").reset_index(drop=True)
+            num_days_ri = len(df_profit)
+
+            # Tagesweise Total-Profit
+            df_profit["day"] = pd.to_datetime(df_profit["day"]).dt.date
+            daily_total = df_profit.set_index("day")["profit"]
+
+            # Alle Trades einlesen
+            if os.path.exists(trades_path):
+                trade_files = [
+                    f for f in os.listdir(trades_path)
+                    if f.startswith("trades_") and f.endswith(".csv")
+                ]
+                all_trades = []
+                for f in trade_files:
+                    fp = os.path.join(trades_path, f)
+                    df_t = pd.read_csv(fp, parse_dates=["execution_time"])
+                    all_trades.append(df_t)
+
+                if len(all_trades) > 0:
+                    trades_df = pd.concat(all_trades, ignore_index=True)
+
+                    # Zeitzone setzen, falls nötig
+                    if trades_df["execution_time"].dt.tz is None:
+                        trades_df["execution_time"] = trades_df["execution_time"].dt.tz_localize("Europe/Berlin")
+                    else:
+                        trades_df["execution_time"] = trades_df["execution_time"].dt.tz_convert("Europe/Berlin")
+
+                    trades_df["day"] = trades_df["execution_time"].dt.date
+
+                    # DA = Trades mit execution_time.hour == 13
+                    is_dam = trades_df["execution_time"].dt.hour == 13
+
+                    daily_dam = (
+                        trades_df[is_dam]
+                        .groupby("day")["profit"]
+                        .sum()
+                    )
+
+                    # IDC = total - DA (per Tag)
+                    daily_dam_aligned = daily_dam.reindex(daily_total.index, fill_value=0.0)
+                    daily_idc = daily_total - daily_dam_aligned
+
+                    # ----- Statistiken berechnen -----
+                    # Total
+                    (
+                        total_ri_profit,
+                        mean_ri_profit,
+                        median_ri_profit,
+                        std_ri_profit,
+                        q95_ri_profit,
+                        sharpe_ri,
+                    ) = _compute_series_stats(daily_total)
+
+                    # DA
+                    (
+                        total_dam_profit,
+                        mean_dam_profit,
+                        median_dam_profit,
+                        std_dam_profit,
+                        q95_dam_profit,
+                        sharpe_dam,
+                    ) = _compute_series_stats(daily_dam_aligned)
+
+                    # IDC
+                    (
+                        total_idc_profit,
+                        mean_idc_profit,
+                        median_idc_profit,
+                        std_idc_profit,
+                        q95_idc_profit,
+                        sharpe_idc,
+                    ) = _compute_series_stats(daily_idc)
+
+                else:
+                    logger.warning(f"Keine Trade-Dateien im Pfad {trades_path} gefunden.")
+            else:
+                logger.warning(f"Trades-Pfad {trades_path} existiert nicht.")
+
+        else:
+            logger.warning(
+                f"Keine profit.csv im RI-Output-Pfad {ri_qh_output_path_val} gefunden."
+            )
+
+        # ---- Ergebnisse in Summary anhängen ----
+        validation_summary = pd.concat(
+            [
+                validation_summary,
+                pd.DataFrame(
+                    [
+                        [
+                            checkpoint_name,
+                            current_steps,
+                            # RL
+                            mean_rl_reward,
+                            total_rl_reward,
+                            # RI total
+                            num_days_ri,
+                            total_ri_profit,
+                            mean_ri_profit,
+                            median_ri_profit,
+                            std_ri_profit,
+                            q95_ri_profit,
+                            sharpe_ri,
+                            # DA
+                            total_dam_profit,
+                            mean_dam_profit,
+                            median_dam_profit,
+                            std_dam_profit,
+                            q95_dam_profit,
+                            sharpe_dam,
+                            # IDC
+                            total_idc_profit,
+                            mean_idc_profit,
+                            median_idc_profit,
+                            std_idc_profit,
+                            q95_idc_profit,
+                            sharpe_idc,
+                        ]
+                    ],
+                    columns=validation_summary.columns,
+                ),
+            ],
+            ignore_index=True,
+        )
+
+        # Summary speichern nach jedem Checkpoint
+        validation_summary.to_csv(summary_path, index=False)
+        logger.info(
+            f"Validation metrics for {checkpoint_name} gespeichert in {summary_path}"
+        )
+
+        # Nächster Checkpoint
+        current_steps += STEP_INCREMENT
+
+    logger.info("Validation über alle Checkpoints abgeschlossen.")
+    print(validation_summary)

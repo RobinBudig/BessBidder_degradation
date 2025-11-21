@@ -26,7 +26,7 @@ TRAIN_END   = pd.Timestamp(year=2021, month=12, day=31, tz="Europe/Berlin") + pd
 
 # Validierungszeitraum
 VAL_START = pd.Timestamp(year=2022, month=1, day=1, tz="Europe/Berlin")
-VAL_END   = pd.Timestamp(year=2022, month=12, day=31, tz="Europe/Berlin") + pd.Timedelta(days=1)
+VAL_END   = pd.Timestamp(year=2022, month=1, day=30, tz="Europe/Berlin") + pd.Timedelta(days=1)
 
 # Testzeitraum
 TEST_START = pd.Timestamp(year=2023, month=1, day=1, tz="Europe/Berlin")

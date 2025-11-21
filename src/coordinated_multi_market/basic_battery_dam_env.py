@@ -137,7 +137,8 @@ class BasicBatteryDAM(gym.Env):
         else:
             realized_quantity = 0
 
-        reward = clearing_price * realized_quantity / (85 / 24)
+        #reward = clearing_price * realized_quantity / (85 / 24)
+        reward = (clearing_price * realized_quantity) / 85 
 
         delta_soc = 0
         delta_soc = (-1) * realized_quantity
