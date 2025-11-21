@@ -33,8 +33,8 @@ from src.coordinated_multi_market.learning_utils import (
 if __name__ == "__main__":
 
     # Specify to be analysed model
-    model_number = "6"
-    model_checkpoint = "ppo_stacked_checkpoint_240000_steps"
+    model_number = "0"
+    model_checkpoint = "ppo_stacked_checkpoint_250000_steps"
 
     versioned_log_path = os.path.join(LOGGING_PATH_COORDINATED, model_number)
     versioned_model_path = os.path.join(MODEL_OUTPUT_PATH_COORDINATED, model_number)

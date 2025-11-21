@@ -15,9 +15,26 @@ MAX_CYCLES_PER_DAY = 1
 BUCKET_SIZE = 15
 MIN_TRADES = 10
 
-# Define model horizon
-START = pd.Timestamp(year=2019, month=1, day=1, tz="Europe/Berlin")
-END = pd.Timestamp(year=2024, month=1, day=1, tz="Europe/Berlin")
+# Gesamter Datenbereich, nur zur Doku / Kontrolle
+DATA_START = pd.Timestamp(year=2019, month=1, day=1, tz="Europe/Berlin")
+DATA_END   = pd.Timestamp(year=2024, month=1, day=1, tz="Europe/Berlin")  # exklusive Obergrenze
+
+# Trainingszeitraum
+TRAIN_START = pd.Timestamp(year=2019, month=1, day=1, tz="Europe/Berlin")
+TRAIN_END   = pd.Timestamp(year=2021, month=12, day=31, tz="Europe/Berlin") + pd.Timedelta(days=1)
+# +1 Tag, damit wir in Masken '>= TRAIN_START & < TRAIN_END' verwenden können
+
+# Validierungszeitraum
+VAL_START = pd.Timestamp(year=2022, month=1, day=1, tz="Europe/Berlin")
+VAL_END   = pd.Timestamp(year=2022, month=12, day=31, tz="Europe/Berlin") + pd.Timedelta(days=1)
+
+# Testzeitraum
+TEST_START = pd.Timestamp(year=2023, month=1, day=1, tz="Europe/Berlin")
+TEST_END   = pd.Timestamp(year=2023, month=12, day=31, tz="Europe/Berlin") + pd.Timedelta(days=1)
+
+# For single market day ahead optimizer, rolling intrinsic and myopic market
+START = TEST_START
+END   = TEST_END
 
 # ----------------------------------------------
 # MODELLING CONFIGURATIONS

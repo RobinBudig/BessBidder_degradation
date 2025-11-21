@@ -4,24 +4,49 @@ import numpy as np
 import pandas as pd
 import os
 from sklearn.preprocessing import MinMaxScaler
+from typing import Tuple
 
-from src.shared.config import (
-    START,
-    END,
-    DATA_PATH,
-)
+from src.shared.config import TRAIN_START, TRAIN_END, VAL_START, VAL_END, TEST_START, TEST_END, DATA_PATH
+
+path = "df_spot_train_2019-01-01_2021-12-31_with_features_utc.csv"
+
+def split_df_by_date(
+    df: pd.DataFrame,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+   
+    if not isinstance(df.index, pd.DatetimeIndex):
+        raise ValueError("DataFrame-Index muss ein DatetimeIndex sein.")
+
+    if df.index.tz is None:
+        # Annahme: Daten sind in UTC gespeichert
+        df.index = df.index.tz_localize("utc").tz_convert("Europe/Berlin")
+    else:
+        df.index = df.index.tz_convert("Europe/Berlin")
+
+    train_mask = (df.index >= TRAIN_START) & (df.index < TRAIN_END)
+    val_mask   = (df.index >= VAL_START)   & (df.index < VAL_END)
+    test_mask  = (df.index >= TEST_START)  & (df.index < TEST_END)
+
+    df_train = df[train_mask].copy()
+    df_val   = df[val_mask].copy()
+    df_test  = df[test_mask].copy()
+
+    return df_train, df_val, df_test
 
 
-def load_input_data(write_test=False) -> tuple[pd.DataFrame, pd.DataFrame]:
 
-    train_start = START.tz_convert("Europe/Berlin").date().isoformat()
-    train_end = END.tz_convert("Europe/Berlin").date().isoformat()
+def load_input_data(write_test: bool = False):
+    """
+    Lädt den vollständigen Spot-Datensatz und splittet ihn deterministisch
+    in Train-, Val- und Test-Sets nach den Zeiträumen in config.py.
 
-    # path=f"df_spot_train_{train_start}_{train_end}_with_features_utc.csv"
-    # TODOD: USE dynamic as soon as epex 15 problem is solved
-    path = "df_spot_train_2019-01-01_2021-12-31_with_features_utc.csv"
+    Rückgabe:
+        df_spot_train, df_spot_val, df_spot_test
+    """
 
-    df_spot_train = pd.read_csv(
+    # 1) Gesamten Datensatz laden
+    #df = pd.read_csv(SPOT_DATA_CSV_PATH, index_col="time", parse_dates=True)
+    df = pd.read_csv(
         os.path.join(
             DATA_PATH,
             path,
@@ -30,43 +55,18 @@ def load_input_data(write_test=False) -> tuple[pd.DataFrame, pd.DataFrame]:
         parse_dates=True,
     )
 
-    TRAIN_START = START
-    TRAIN_END = END
+    # 2) Zeiträume anwenden
+    df_spot_train, df_spot_val, df_spot_test = split_df_by_date(df)
 
-    df_spot_train = df_spot_train[
-        (df_spot_train.index > TRAIN_START) & (df_spot_train.index < TRAIN_END)
-    ]
+    # 3) Optional: Testdaten in CSV schreiben (z.B. für weitere Auswertungen)
+    if write_test:
+        df_spot_test.to_csv("spot_test_period.csv")
+    
+    print(df_spot_train.index.min(), df_spot_train.index.max())
+    print(df_spot_val.index.min(), df_spot_val.index.max())
+    print(df_spot_test.index.min(), df_spot_test.index.max())
 
-    # Step 1: Identify unique days (year-week pairs)
-    df_spot_train["day"] = df_spot_train.index.to_period("d")  # Extract day information
-
-    # Step 2: Randomly select a few days for the test set
-    rng = np.random.default_rng(seed=42)  # Create a random generator with a seed
-    test_days = rng.choice(df_spot_train["day"].unique(), size=5, replace=False)
-
-    # Step 3: Split into train and test sets
-    df_spot_test = df_spot_train[df_spot_train["day"].isin(test_days)]
-    df_spot_train = df_spot_train[~df_spot_train["day"].isin(test_days)]
-
-    # Drop the 'week' column (optional)
-    df_spot_train = df_spot_train.drop(columns="day")
-    df_spot_test = df_spot_test.drop(columns="day")
-
-    if write_test == True:
-        # store new df_spot_test
-        df_spot_test.to_csv(
-            os.path.join(
-                "data",
-                "simplified_data_jan_with_exaa_and_id_full",
-                "df_spot_test_2023-01-01_2023-12-31_with_features_utc.csv",
-            ),
-            date_format="%Y-%m-%dT%H:%M:%S%z",
-        )
-
-    # df_spot_train.index = df_spot_train.index.tz_convert("Europe/Berlin")
-    # df_spot_test.index = df_spot_test.index.tz_convert("Europe/Berlin")
-
-    return df_spot_train, df_spot_test
+    return df_spot_train, df_spot_val, df_spot_test
 
 
 def prepare_input_data(

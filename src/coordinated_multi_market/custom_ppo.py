@@ -326,9 +326,17 @@ class CustomPPO(PPO):
         return episode_dict
 
     @staticmethod
-    def _check_if_complete_cycle(period_volumes):
+    def _check_if_complete_cycle(period_volumes, capacity: float = 1.0,
+                             min_cycle_fraction: float = 0.7):
         traded_volume = abs(period_volumes).sum()
-        return traded_volume / (2 * 1) == 1
+        cycle_fraction = traded_volume / (2 * capacity)
+        return cycle_fraction >= min_cycle_fraction
+    
+    #def _check_if_complete_cycle(period_volumes):
+    #    traded_volume = abs(period_volumes).sum()
+    #    return traded_volume / (2 * 1) == 1
+    
+
 
     @staticmethod
     def _derive_day_ahead_trades(

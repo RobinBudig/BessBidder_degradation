@@ -77,17 +77,10 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # Load and prepare training data
-    df_spot_train, df_spot_test = load_input_data(write_test=True)
+    # Load and prepare input data
+    df_spot_train, df_spot_val, df_spot_test = load_input_data(write_test=False)
 
-    # Drop problematic days known to break RI algorithm
-    df_spot_train = df_spot_train[
-        ~df_spot_train.index.normalize().isin(
-            [pd.Timestamp("2020-11-15").date(), pd.Timestamp("2020-12-27").date()]
-        )
-    ]
-
-    # Apply preprocessing and feature scaling
+    # Fürs Training nur df_spot_train verwenden
     input_data_train = prepare_input_data(df_spot_train, versioned_scaler_path)
 
     # Initialize training environment
