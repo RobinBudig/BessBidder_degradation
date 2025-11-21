@@ -81,7 +81,7 @@ if __name__ == "__main__":
     df_spot_train, df_spot_val, df_spot_test = load_input_data(write_test=False)
 
     # Fürs Training nur df_spot_train verwenden
-    input_data_train = prepare_input_data(df_spot_train, versioned_scaler_path)
+    input_data_train = prepare_input_data(df_spot_train, versioned_scaler_path, fit_scaler=True)
 
     # Initialize training environment
     env = BasicBatteryDAM(

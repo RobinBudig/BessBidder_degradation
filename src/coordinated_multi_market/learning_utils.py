@@ -6,7 +6,7 @@ import os
 from sklearn.preprocessing import MinMaxScaler
 from typing import Tuple
 
-from src.shared.config import TRAIN_START, TRAIN_END, VAL_START, VAL_END, TEST_START, TEST_END, DATA_PATH
+from src.shared.config import TRAIN_START, TRAIN_END, VAL_START, VAL_END, TEST_START, TEST_END, DATA_PATH, PROBLEMATIC_DATES
 
 path = "df_spot_train_2019-01-01_2021-12-31_with_features_utc.csv"
 
@@ -44,7 +44,7 @@ def load_input_data(write_test: bool = False):
         df_spot_train, df_spot_val, df_spot_test
     """
 
-    # 1) Gesamten Datensatz laden
+    # Load dataset
     #df = pd.read_csv(SPOT_DATA_CSV_PATH, index_col="time", parse_dates=True)
     df = pd.read_csv(
         os.path.join(
@@ -54,23 +54,28 @@ def load_input_data(write_test: bool = False):
         index_col=0,
         parse_dates=True,
     )
+    # Remove problematic dates
+    if PROBLEMATIC_DATES:
+        mask_bad = df.index.date.astype("O")
+        df = df[~pd.Series(mask_bad, index=df.index).isin(PROBLEMATIC_DATES)]
 
-    # 2) Zeiträume anwenden
+
+    # Apply time periods
     df_spot_train, df_spot_val, df_spot_test = split_df_by_date(df)
 
-    # 3) Optional: Testdaten in CSV schreiben (z.B. für weitere Auswertungen)
+    # Optional: Write test data to CSV (e.g., for further analysis)
     if write_test:
         df_spot_test.to_csv("spot_test_period.csv")
     
-    print(df_spot_train.index.min(), df_spot_train.index.max())
-    print(df_spot_val.index.min(), df_spot_val.index.max())
-    print(df_spot_test.index.min(), df_spot_test.index.max())
+    print("Training start:", df_spot_train.index.min(), "Training end:", df_spot_train.index.max())
+    print("Validation start:", df_spot_val.index.min(), "Validation end:", df_spot_val.index.max())
+    print("Test start:", df_spot_test.index.min(), "Test end:", df_spot_test.index.max())
 
     return df_spot_train, df_spot_val, df_spot_test
 
 
 def prepare_input_data(
-    df: pd.DataFrame, versioned_scaler_path: str
+    df: pd.DataFrame, versioned_scaler_path: str, fit_scaler: bool = False
 ) -> dict[str, dict[str, np.array]]:
     scalable_features = df[
         [
@@ -88,13 +93,32 @@ def prepare_input_data(
             "spread_id_full_da_qh_max",
         ]
     ].copy()
-    scaler = MinMaxScaler()
-    scaler.fit(scalable_features)
+
+    scaler_file = os.path.join(versioned_scaler_path, "scaler.pkl")
+
+    # --- NEU: Train-/Test-Modus trennen ---
+    if fit_scaler:
+        # Train-Phase: Scaler fitten und speichern
+        scaler = MinMaxScaler()
+        scaler.fit(scalable_features)
+        os.makedirs(versioned_scaler_path, exist_ok=True)
+        joblib.dump(scaler, scaler_file)
+    else:
+        # Test/Inference: existierenden Scaler laden
+        if not os.path.exists(scaler_file):
+            raise FileNotFoundError(
+                f"Scaler file not found at {scaler_file}. "
+                "Make sure to run prepare_input_data with fit_scaler=True on the train set first."
+            )
+        scaler = joblib.load(scaler_file)
+
+    # In beiden Fällen: transformieren
     features_scaled = scaler.transform(scalable_features)
     df_scaled = pd.DataFrame(
         features_scaled, columns=scalable_features.columns, index=df.index
     )
-    joblib.dump(scaler, os.path.join(versioned_scaler_path, "scaler.pkl"))
+
+    # Preise bleiben unskaliert, werden wieder dran gehängt
     df = pd.concat(
         [
             df_scaled,
@@ -231,6 +255,7 @@ def prepare_input_data(
             }
         )
     return input_dict
+
 
 
 # Define a linear learning rate schedule

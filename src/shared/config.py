@@ -36,6 +36,14 @@ TEST_END   = pd.Timestamp(year=2023, month=12, day=31, tz="Europe/Berlin") + pd.
 START = TEST_START
 END   = TEST_END
 
+# Problematic dates that need to be removed from the data for the rolling intrinsic algorithm to work
+PROBLEMATIC_DATES = [
+    pd.Timestamp("2020-11-15").date(),
+    pd.Timestamp("2020-12-27").date(),
+    pd.Timestamp("2020-12-31").date(),
+    
+]
+
 # ----------------------------------------------
 # MODELLING CONFIGURATIONS
 

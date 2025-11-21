@@ -15,7 +15,7 @@ import pytz
 from dotenv import load_dotenv
 from sqlalchemy import Engine, create_engine
 
-warnings.simplefilter(action="ignore", category=FutureWarning)
+#warnings.simplefilter(action="ignore", category=FutureWarning)
 import platform
 
 if platform.system() == "Darwin":
@@ -254,8 +254,11 @@ def execute_etl_transactions_new_format(years: List[int]) -> None:
                 file_name_prefix=TRANSACTION_ZIP_FILE_NAME_PREFIX,
                 year=year,
             )
+            logging.info(f"[{year}] ZIP downloaded to: {transaction_archive_location}")
+
             unpacked_archive_path = unpack_archive(transaction_archive_location)
             filenames = fetch_csv_file_names(path=unpacked_archive_path)
+            logging.info(f"[{year}] Found {len(filenames)} CSV files in {unpacked_archive_path}")
             for idx, filename in enumerate(filenames):
                 logging.info(
                     f"Processing {filename} - File #{idx + 1} from {len(filenames)}"
@@ -276,5 +279,5 @@ def execute_etl_transactions_new_format(years: List[int]) -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    years = [2022]
+    years = [2024, 2025]
     execute_etl_transactions_new_format(years)

@@ -149,7 +149,7 @@ if __name__ == "__main__":
         # ---- RL-Teil auf Validierungsdaten ----
         model = CustomPPO.load(path=checkpoint_file)
 
-        input_data_val = prepare_input_data(df_spot_val, versioned_scaler_path)
+        input_data_val = prepare_input_data(df_spot_val, versioned_scaler_path, fit_scaler=False)
 
         for key, value in input_data_val.items():
             env = BasicBatteryDAM(

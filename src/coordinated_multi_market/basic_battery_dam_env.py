@@ -177,7 +177,7 @@ class BasicBatteryDAM(gym.Env):
             # check if we have capacity left in battery
             if self._current_soc > 0:
                 # penalty because missed profit
-                penalty = self._current_soc * (85 / 24)
+                penalty = self._current_soc    # oder 2 * self._current_soc, etc.
                 reward = -penalty
         
         # cast reward to float
@@ -269,26 +269,31 @@ class BasicBatteryDAM(gym.Env):
     def _sample_random_day(self) -> str:
         return str(np.random.choice(self._days_left, 1, replace=False)[0])
 
+
+
     def _reinitialize_input_data_after_reset(self) -> None:
+        # 1) Zufälligen Tag ziehen
         self._random_day = self._sample_random_day()
-        self._forecasted_price_vector = self._input_data[self._random_day][
-            "price_forecast"
-        ]
-        self._realized_price_vector = self._input_data[self._random_day][
-            "price_realized"
-        ]
+
+        # 2) Preise (nicht global gescaled, deshalb hier tagesweise ok)
+        self._forecasted_price_vector = self._input_data[self._random_day]["price_forecast"]
+        self._realized_price_vector = self._input_data[self._random_day]["price_realized"]
+
         self._min_price_realized = np.min(self._realized_price_vector)
         self._max_price_realized = np.max(self._realized_price_vector)
         self._min_price_forecasted = np.min(self._forecasted_price_vector)
         self._max_price_forecasted = np.max(self._forecasted_price_vector)
+
+        # tagesweise Scaling NUR für Preise (die vorher nicht global gescaled wurden)
         self._forecasted_price_vector_scaled = (
-            self._input_data[self._random_day]["price_forecast"]
-            - self._min_price_forecasted
+            self._forecasted_price_vector - self._min_price_forecasted
         ) / (self._max_price_forecasted - self._min_price_forecasted)
+
         self._realized_price_vector_scaled = (
-            self._input_data[self._random_day]["price_realized"]
-            - self._min_price_realized
+            self._realized_price_vector - self._min_price_realized
         ) / (self._max_price_realized - self._min_price_realized)
+
+        # 3) Scalar-Features (bereits global gescaled via MinMaxScaler aus prepare_input_data)
         self._date_month = self._input_data[self._random_day]["date_month"][0]
         self._day_of_week = self._input_data[self._random_day]["day_of_week"][0]
         self._wind_forecast_daily_mean = self._input_data[self._random_day][
@@ -310,87 +315,54 @@ class BasicBatteryDAM(gym.Env):
             "spread_id_full_da_max"
         ][0]
 
+        # Zeitstempel
         self._timestamps = self._input_data[self._random_day]["timestamps"]
 
+        # 4) Forecast-Zeitreihen (bereits global gescaled vom Scaler!)
         self._pv_forecast = self._input_data[self._random_day][
             "pv_forecast_d_minus_1_1000_de_lu_mw"
         ]
-
         self._wind_onshore_forecast = self._input_data[self._random_day][
             "wind_onshore_forecast_d_minus_1_1000_de_lu_mw"
         ]
         self._wind_offshore_forecast = self._input_data[self._random_day][
             "wind_offshore_forecast_d_minus_1_1000_de_lu_mw"
-]
+        ]
         self._load_forecast = self._input_data[self._random_day][
             "load_forecast_d_minus_1_1000_total_de_lu_mw"
         ]
 
+        # 5) Residual Load – fachlich korrekt: Load - PV - Wind_on - Wind_off
         self._residual_load_forecast = (
             self._load_forecast
+            - self._pv_forecast
             - self._wind_onshore_forecast
             - self._wind_offshore_forecast
-            - self._pv_forecast
         )
 
-        self._min_residual_load_forecast = np.min(self._residual_load_forecast)
-        self._max_residual_load_forecast = np.max(self._residual_load_forecast)
+        # 6) "Scaled"-Varianten einfach auf global gescalte Werte setzen
+        #    (kein tagesweises MinMax mehr für diese Größen!)
+        self._pv_forecast_scaled = self._pv_forecast
+        self._wind_onshore_forecast_scaled = self._wind_onshore_forecast
+        self._wind_offshore_forecast_scaled = self._wind_offshore_forecast
+        self._load_forecast_scaled = self._load_forecast
+        self._residual_load_forecast_scaled = self._residual_load_forecast
 
-        denominator = (
-            self._max_residual_load_forecast - self._min_residual_load_forecast
-        )
-        if denominator != 0:
-            self._residual_load_forecast_scaled = (
-                self._residual_load_forecast - self._min_residual_load_forecast
-            ) / denominator
-        else:
-            self._residual_load_forecast_scaled = np.zeros(24)
-
-        self._min_pv_forecast = np.min(self._pv_forecast)
-        self._max_pv_forecast = np.max(self._pv_forecast)
-
-        denominator = self._max_pv_forecast - self._min_pv_forecast
-        if denominator != 0:
-            self._pv_forecast_scaled = (
-                self._pv_forecast - self._min_pv_forecast
-            ) / denominator
-        else:
-            self._pv_forecast_scaled = np.zeros(24)
-
+        # 7) Tagesstatistiken (auf global gescalten Reihen)
         self._pv_forecast_daily_mean = np.mean(self._pv_forecast)
         self._pv_forecast_daily_std = np.std(self._pv_forecast)
-
-        self._min_wind_onshore_forecast = np.min(self._wind_onshore_forecast)
-        self._max_wind_onshore_forecast = np.max(self._wind_onshore_forecast)
-
-        denominator = self._max_wind_onshore_forecast - self._min_wind_onshore_forecast
-        if denominator != 0:
-            self._wind_onshore_forecast_scaled = (
-                self._wind_onshore_forecast - self._min_wind_onshore_forecast
-            ) / denominator
-        else:
-            self._wind_onshore_forecast_scaled = np.zeros(24)
-
-        self._min_load_forecast = np.min(self._load_forecast)
-        self._max_load_forecast = np.max(self._load_forecast)
-
-        denominator = self._max_load_forecast - self._min_load_forecast
-        if denominator != 0:
-            self._load_forecast_scaled = (
-                self._load_forecast - self._min_load_forecast
-            ) / denominator
-        else:
-            self._load_forecast_scaled = np.zeros(24)
 
         self._load_forecast_daily_mean = np.mean(self._load_forecast)
         self._load_forecast_daily_std = np.std(self._load_forecast)
 
-        # calculate load gradient of forecast
+        # 8) Gradienten (auf den "scaled" Reihen – hier identisch mit oben)
         self._delta_load_forecast = np.append(np.diff(self._load_forecast_scaled), 0)
         self._delta_pv_forecast_scaled = np.append(np.diff(self._pv_forecast_scaled), 0)
         self._delta_wind_onshore_forecast_scaled = np.append(
             np.diff(self._wind_onshore_forecast_scaled), 0
         )
+
+
 
     def log_data(
         self,

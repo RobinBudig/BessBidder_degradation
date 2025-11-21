@@ -43,21 +43,8 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Using device: %s" % device)
     df_spot_train, df_spot_val, df_spot_test = load_input_data(write_test=True)
-
-    """
-    # test if the 15.11 is in data and if delete it, because somehow this day repeatedly breaks the RI Algo
-    df_spot_train = df_spot_train[
-        (df_spot_train.index.date != pd.Timestamp("2020-11-15").date())
-    ]
-    df_spot_train = df_spot_train[
-        (df_spot_train.index.date != pd.Timestamp("2020-12-27").date())
-    ]
-    df_spot_test = df_spot_test[
-        (df_spot_test.index.date != pd.Timestamp("2020-12-31").date())
-    ]
-    """
     
-    input_data_test = prepare_input_data(df_spot_test, versioned_scaler_path)
+    input_data_test = prepare_input_data(df_spot_test, versioned_scaler_path, fit_scaler=False )
 
     model = CustomPPO.load(
         path=os.path.join(versioned_model_path, model_checkpoint + ".zip")
