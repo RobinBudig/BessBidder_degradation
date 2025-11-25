@@ -31,24 +31,3 @@ if __name__ == "__main__":
         max_cycles=MAX_CYCLES_PER_YEAR,
         min_trades=MIN_TRADES,
     )
-    
-"""
-if __name__ == "__main__":
-    # Beispielaufruf:
-    start_day = pd.Timestamp("2020-01-01", tz="Europe/Berlin")
-    end_day   = pd.Timestamp("2020-01-11", tz="Europe/Berlin")  # 10 Tage
-
-    run_period_parallel(
-        start_day=start_day,
-        end_day=end_day,
-        discount_rate=0.0,
-        bucket_size=15,
-        c_rate=0.5,
-        roundtrip_eff=0.86,
-        max_cycles=365,
-        min_trades=10,
-        base_output_path="output_parallel",
-        processes=8,   # Ryzen 7 -> 8 Kerne
-    )
-
-"""

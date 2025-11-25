@@ -5,10 +5,8 @@ import holidays
 import numpy as np
 import pandas as pd
 
-from src.shared.config import START, END, DATA_PATH
+from src.shared.config import DATA_START, DATA_END, DATA_PATH
 
-TRAIN_START = START
-TRAIN_END = END
 
 ZEITUMSTELLUNGEN = [
     "2019-03-31T00:00:00+01:00",
@@ -23,6 +21,9 @@ ZEITUMSTELLUNGEN = [
     "2023-10-29T00:00:00+02:00",
 ]
 
+# Format the start and end dates for the output file name
+data_start = DATA_START.tz_convert("Europe/Berlin").date().isoformat()
+data_end = DATA_END.tz_convert("Europe/Berlin").date().isoformat()
 
 def make_time_features(df: pd.DataFrame) -> pd.DataFrame:
     df["date_month"] = df.index.month
@@ -94,9 +95,10 @@ def calculate_id_da_spread_and_stats(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+
 def create_dataframes():
     df = pd.read_csv(
-        Path("data", "data_2019-01-01_2024-01-01_hourly.csv"),
+        Path("data", f"data_{data_start}_{data_end}_hourly.csv"),
         index_col=0,
         parse_dates=True,
     ).ffill()
@@ -106,16 +108,16 @@ def create_dataframes():
 
     df = df[~df.index.to_series().apply(lambda x: x.date()).isin(missing_days)]
 
-    df = df.loc["2019":"2023"].copy()
+    #df = df.loc["2019":"2023"].copy()
 
     df = make_time_features(df)
     df = derive_daily_wind_forecast_stats(df)
     df = calculate_id_da_spread_and_stats(df)
 
-    df_spot_train = df.loc[TRAIN_START:TRAIN_END][
+    df_spot_train = df.loc[DATA_START:DATA_END][
         [
             "epex_spot_60min_de_lu_eur_per_mwh",
-            "exaa_spot_15min_de_lu_eur_per_mwh",
+            "exaa_15min_de_lu_eur_per_mwh",
             "load_forecast_d_minus_1_1000_total_de_lu_mw",
             "pv_forecast_d_minus_1_1000_de_lu_mw",
             "wind_offshore_forecast_d_minus_1_1000_de_lu_mw",

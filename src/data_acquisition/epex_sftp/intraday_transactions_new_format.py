@@ -279,5 +279,5 @@ def execute_etl_transactions_new_format(years: List[int]) -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    years = [2024, 2025]
+    years = [2024]
     execute_etl_transactions_new_format(years)

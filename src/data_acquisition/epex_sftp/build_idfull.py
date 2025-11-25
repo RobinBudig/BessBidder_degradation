@@ -24,18 +24,20 @@ SQL_RECREATE_IDFULL_H_FROM_QH = """
 DROP TABLE IF EXISTS public.id_full_h_from_qh;
 CREATE TABLE public.id_full_h_from_qh AS
 SELECT
-  date_trunc('hour', deliverystart)                        AS hour_start,
+  -- Aggregation in UTC-Stunden:
+  date_trunc('hour', deliverystart AT TIME ZONE 'UTC')  AS hour_start_utc,
   SUM(weighted_avg_price * volume) / NULLIF(SUM(volume),0) AS id_full_h,
   SUM(volume)                                              AS hour_volume
 FROM public.transactions_intraday_de
 WHERE deliverystart IS NOT NULL
   AND volume > 0
-GROUP BY date_trunc('hour', deliverystart)
-ORDER BY hour_start;
+GROUP BY date_trunc('hour', deliverystart AT TIME ZONE 'UTC')
+ORDER BY hour_start_utc;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_id_full_h_from_qh
-  ON public.id_full_h_from_qh (hour_start);
+  ON public.id_full_h_from_qh (hour_start_utc);
 """
+
 
 # ---------- core operations ----------
 
@@ -49,26 +51,34 @@ def rebuild_idfull_table():
             if s:
                 con.execute(text(s))
 
+
 def load_idfull(only_start=None, only_end=None) -> pd.DataFrame:
-    """Loads hourly IDFull from DB as a tz-aware (UTC) indexed DataFrame."""
+    """Loads hourly IDFull from DB as tz-aware (UTC) indexed DataFrame."""
     eng = _engine_from_env()
-    base = "SELECT hour_start, id_full_h FROM public.id_full_h_from_qh"
+    base = "SELECT hour_start_utc, id_full_h FROM public.id_full_h_from_qh"
     where = []
     params = {}
 
     if only_start is not None:
-        where.append("hour_start >= :start")
+        where.append("hour_start_utc >= :start")
         ts = pd.Timestamp(only_start)
-        params["start"] = ts.tz_convert("UTC") if ts.tz is not None else ts.tz_localize("UTC")
+        # our hour_start_utc is stored as UTC-naive → wir geben naive UTC strings an Postgres
+        if ts.tz is not None:
+            ts = ts.tz_convert("UTC").tz_localize(None)
+        params["start"] = ts
+
     if only_end is not None:
-        where.append("hour_start <= :end")
+        where.append("hour_start_utc <= :end")
         ts = pd.Timestamp(only_end)
-        params["end"] = ts.tz_convert("UTC") if ts.tz is not None else ts.tz_localize("UTC")
+        if ts.tz is not None:
+            ts = ts.tz_convert("UTC").tz_localize(None)
+        params["end"] = ts
 
-    q = base + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY hour_start"
-    df = pd.read_sql(text(q), eng, params=params, parse_dates=["hour_start"]).set_index("hour_start")
+    q = base + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY hour_start_utc"
 
-    # Ensure tz-aware (UTC). If DB returns naive timestamps, localize to UTC.
+    df = pd.read_sql(text(q), eng, params=params, parse_dates=["hour_start_utc"]).set_index("hour_start_utc")
+
+    # Jetzt wissen wir: diese Zeiten sind UTC → einfach lokalizen:
     if df.index.tz is None:
         df.index = df.index.tz_localize("UTC")
     else:
@@ -110,8 +120,6 @@ def merge_idfull_into_csv(csv_in: str, csv_out: str = None) -> pd.DataFrame:
     # Save
     merged.to_csv(csv_out)
     return merged
-
-# ---------- public entry you can import ----------
 
 def run_build_idfull_and_merge(csv_in: str, csv_out: str = None) -> pd.DataFrame:
     """

@@ -28,7 +28,9 @@ from src.data_acquisition.epex_sftp.intraday_transactions_old_format import (
 )
 from src.data_acquisition.postgres_db.postgres_db_hooks import ThesisDBHook
 
-from src.shared.config import START, END
+from src.data_acquisition.epex_sftp.build_idfull import run_build_idfull_and_merge
+
+from src.shared.config import DATA_START, DATA_END
 
 # Load environment variables from .env file
 load_dotenv()
@@ -41,8 +43,8 @@ POSTGRES_USERNAME = os.getenv("POSTGRES_USER")
 POSTGRES_DB_HOST = os.getenv("POSTGRES_DB_HOST")
 
 # Start and end dates for data extraction
-start = START
-end = END
+start = DATA_START
+end = DATA_END
 
 # -------------------------------------------------------
 # WRITE DATA INTO DATABASE
@@ -65,18 +67,20 @@ fill_database_with_entsoe_data(start, end)
 thesis_db_hook = ThesisDBHook(username=POSTGRES_USERNAME, hostname=POSTGRES_DB_HOST)
 
 # Fetch auction prices for EXAA and EPEX Spot markets
-exaa_prices = thesis_db_hook.get_auction_prices(
+exaa_auction_prices = thesis_db_hook.get_auction_prices(
     start=start, end=end, id="exaa_15min_de_lu_eur_per_mwh"
 )
+
+"""
+# Fetch auction prices for EPEX Spot (15 min resolution)
+epex_spot_15min_prices = thesis_db_hook.get_auction_prices(
+    start=start, end=end, id="epex_spot_15min_de_lu_eur_per_mwh"
+)
+"""
 
 # Fetch auction prices for EPEX Spot (60 min resolution)
 da_auction_prices_60 = thesis_db_hook.get_auction_prices(
     start=start, end=end, id="epex_spot_60min_de_lu_eur_per_mwh"
-)
-
-# Fetch auction prices for EXAA (15 min resolution)
-exaa_auction_prices = thesis_db_hook.get_auction_prices(
-    start=start, end=end, id="exaa_15min_de_lu_eur_per_mwh"
 )
 
 # Fetch demand forecast data
@@ -102,8 +106,8 @@ data = pd.concat([da_auction_prices_60, exaa_auction_prices, demand_df, vre_df],
 data_hourly = data.resample("h").mean()
 
 # Format the start and end dates for the output file name
-data_start = START.tz_convert("Europe/Berlin").date().isoformat()
-data_end = END.tz_convert("Europe/Berlin").date().isoformat()
+data_start = DATA_START.tz_convert("Europe/Berlin").date().isoformat()
+data_end = DATA_END.tz_convert("Europe/Berlin").date().isoformat()
 
 # Set the output path for saving the data
 output_path = Path("data")
@@ -111,5 +115,13 @@ if not os.path.exists(output_path):
     os.makedirs(output_path)
 
 # Save the hourly data as a CSV file
-data_hourly.to_csv(Path(output_path, f"data_{data_start}_{data_end}_hourly.csv"))
+csv_path = Path(output_path, f"data_{data_start}_{data_end}_hourly.csv")
+data_hourly.to_csv(csv_path)
+
+
+# Run id_full rebuild + merge
+merged_df = run_build_idfull_and_merge(
+    csv_in=str(csv_path),
+    csv_out=str(csv_path)
+)
 
