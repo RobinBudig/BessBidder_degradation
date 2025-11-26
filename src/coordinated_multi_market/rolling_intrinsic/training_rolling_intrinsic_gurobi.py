@@ -342,10 +342,12 @@ def solve_bucket_with_persistent_model(
 
 
     # Check if a feasible solution was found
-    if m.SolCount == 0:
-        
-    #    print(f"No solution for bucket starting {execution_time}, status={m.Status}")
-        raise ValueError(f"No feasible solution for bucket starting {execution_time}")
+    if m.status != gp.GRB.OPTIMAL:
+        # No optimal solution found, return empty results
+        empty_trades = pd.DataFrame(
+            columns=["execution_time", "side", "quantity", "price", "product", "profit"]
+        )
+        return None, empty_trades, 0.0
 
     # 6) Ergebnisse einsammeln (wie bisher)
     results = pd.DataFrame(

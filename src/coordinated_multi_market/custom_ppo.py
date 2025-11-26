@@ -140,7 +140,7 @@ class CustomPPO(PPO):
             )
             self._last_obs = new_obs  # type: ignore[assignment]
             self._last_episode_starts = dones
-            if n_steps > 1:
+            if n_steps > 0:
                 timestamp_buffer[n_steps - 1] = infos[0]["timestamp"]
                 position_buffer[n_steps - 1] = infos[0]["position"]
                 clearing_price_buffer[n_steps - 1] = infos[0]["clearing_price"]
@@ -155,6 +155,8 @@ class CustomPPO(PPO):
             rollout_buffer.episode_starts.flatten()
         )
         for row_start, num_rows in complete_periods.items():
+            if num_rows <= 0:
+                continue  # Skip invalid or zero-length episodes
             period_timestamps = pd.to_datetime(
                 timestamp_buffer[row_start : row_start + num_rows], utc=True
             ).tz_convert("Europe/Berlin")
@@ -324,6 +326,7 @@ class CustomPPO(PPO):
         episode_dict = {
             index: length
             for index, length in zip(episode_indices, episode_lengths)
+                if length > 0
             # if length == 24
         }
         return episode_dict
@@ -395,5 +398,11 @@ class CustomPPO(PPO):
                     "Wrong intraday product type %s. Only QH or H allowed."
                     % intraday_product_type
                 )
+        
+        # If no trading activity, return empty DataFrame
+        if not day_ahead_trades:
+            return pd.DataFrame(
+                columns=["execution_time", "side", "quantity", "price", "product", "profit"]
+            )
 
         return pd.DataFrame(day_ahead_trades).T.reset_index(drop=True)

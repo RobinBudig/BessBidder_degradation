@@ -21,11 +21,11 @@ DATA_END   = pd.Timestamp(year=2024, month=1, day=1, tz="Europe/Berlin")  # exkl
 
 # Train data timeframe
 TRAIN_START = pd.Timestamp(year=2019, month=1, day=1, tz="Europe/Berlin")
-TRAIN_END   = pd.Timestamp(year=2021, month=12, day=31, tz="Europe/Berlin") + pd.Timedelta(days=1)
+TRAIN_END   = pd.Timestamp(year=2023, month=9, day=30, tz="Europe/Berlin") + pd.Timedelta(days=1)
 
 # Validation timeframe
-VAL_START = pd.Timestamp(year=2022, month=1, day=1, tz="Europe/Berlin")
-VAL_END   = pd.Timestamp(year=2022, month=1, day=30, tz="Europe/Berlin") + pd.Timedelta(days=1)
+VAL_START = pd.Timestamp(year=2023, month=10, day=31, tz="Europe/Berlin")
+VAL_END   = pd.Timestamp(year=2023, month=12, day=31, tz="Europe/Berlin") + pd.Timedelta(days=1)
 
 # Test timeframe
 TEST_START = pd.Timestamp(year=2020, month=11, day=1, tz="Europe/Berlin")
