@@ -28,8 +28,8 @@ VAL_START = pd.Timestamp(year=2022, month=1, day=1, tz="Europe/Berlin")
 VAL_END   = pd.Timestamp(year=2022, month=1, day=30, tz="Europe/Berlin") + pd.Timedelta(days=1)
 
 # Test timeframe
-TEST_START = pd.Timestamp(year=2023, month=1, day=1, tz="Europe/Berlin")
-TEST_END   = pd.Timestamp(year=2023, month=12, day=31, tz="Europe/Berlin") + pd.Timedelta(days=1)
+TEST_START = pd.Timestamp(year=2020, month=11, day=1, tz="Europe/Berlin")
+TEST_END   = pd.Timestamp(year=2020, month=12, day=31, tz="Europe/Berlin") + pd.Timedelta(days=1)
 
 # For single market day ahead optimizer, rolling intrinsic and myopic market
 START = TEST_START

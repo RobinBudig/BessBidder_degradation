@@ -15,9 +15,12 @@ from stable_baselines3.ppo import PPO
 #    simulate_period_hourly_products,
 #)
 
-from src.coordinated_multi_market.rolling_intrinsic.new_training_rolling_intrinsic_qh_intelligent_stacking import (
-    simulate_days_stacked_quarterhourly_products,
-)
+#from src.coordinated_multi_market.rolling_intrinsic.new_training_rolling_intrinsic_qh_intelligent_stacking import (
+#    simulate_days_stacked_quarterhourly_products,)
+
+from src.coordinated_multi_market.rolling_intrinsic.training_rolling_intrinsic_gurobi import (
+    simulate_days_stacked_quarterhourly_products,)
+
 
 from src.shared.config import BUCKET_SIZE, C_RATE, MAX_CYCLES_PER_DAY, MIN_TRADES, RTE
 

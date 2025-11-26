@@ -3,13 +3,12 @@ import os
 import numpy as np
 import pandas as pd
 from loguru import logger
+from pulp import GUROBI, PULP_CBC_CMD, LpMaximize, LpProblem, LpVariable, lpSum
 import gurobipy as gp
 
 from dotenv import load_dotenv
 
 load_dotenv()
-
-PRECOMPUTED_VWAP_PATH = os.path.join("data", "precomputed_vwaps")
 
 def adjust_prices_block(prices_qh: pd.DataFrame, execution_time: pd.Timestamp, discount_rate: float) -> pd.DataFrame:
     """
@@ -58,80 +57,55 @@ def adjust_prices_block(prices_qh: pd.DataFrame, execution_time: pd.Timestamp, d
     out["price_buy_adj"]  = np.round(price_buy_adj,  2)
     return out
 
+def get_net_trades(trades, end_date):
 
+    if trades.empty:
+        idx = pd.date_range(
+            end_date.normalize() - pd.Timedelta(days=1) + pd.Timedelta(hours=22),
+            end_date.normalize() + pd.Timedelta(hours=21, minutes=45),
+            freq="15min",
+        )
+        df = pd.DataFrame(0, index=idx,
+            columns=["sum_buy","sum_sell","net_buy","net_sell"])
+        return df
 
+    grouped = trades.groupby(["product", "side"])["quantity"].sum().unstack(fill_value=0)
 
+    grouped["net_buy"] = grouped.get("buy", 0) - grouped.get("sell", 0)
+    grouped["net_sell"] = grouped.get("sell", 0) - grouped.get("buy", 0)
 
-def get_net_trades(trades: pd.DataFrame, end_date: pd.Timestamp) -> pd.DataFrame:
-    # vollständiger Index für alle Quarterhours dieses Liefertages
+    # negative Werte auf 0
+    grouped["net_buy"] = grouped["net_buy"].clip(lower=0)
+    grouped["net_sell"] = grouped["net_sell"].clip(lower=0)
+
+    # vollständiger Index für alle Quarterhours
     start = end_date - pd.Timedelta(hours=2)
     start = start.replace(hour=0, minute=0)
     end   = start.replace(hour=23, minute=45)
+
     idx = pd.date_range(start, end, freq="15min")
 
-    # Fall 1: keine Trades -> einfach alles 0
-    if trades.empty:
-        return pd.DataFrame(
-            0.0,
-            index=idx,
-            columns=["sum_buy", "sum_sell", "net_buy", "net_sell"],
-        )
-
-    # Fall 2: es gibt Trades -> aggregieren, dann auf idx reindexen
-    grouped = trades.groupby(["product", "side"])["quantity"].sum().unstack(fill_value=0)
-
-    # Falls die Columns "buy"/"sell" nicht existieren, gib get(...) 0 zurück
-    grouped["sum_buy"]  = grouped.get("buy", 0.0)
-    grouped["sum_sell"] = grouped.get("sell", 0.0)
-
-    grouped["net_buy"]  = grouped["sum_buy"]  - grouped["sum_sell"]
-    grouped["net_sell"] = grouped["sum_sell"] - grouped["sum_buy"]
-
-    # negative Werte auf 0
-    grouped["net_buy"]  = grouped["net_buy"].clip(lower=0.0)
-    grouped["net_sell"] = grouped["net_sell"].clip(lower=0.0)
-
-    # nur die relevanten Spalten behalten
-    grouped = grouped[["sum_buy", "sum_sell", "net_buy", "net_sell"]]
-
-    # auf kompletten Tagesindex bringen, fehlende mit 0 auffüllen
-    return grouped.reindex(idx, fill_value=0.0)
+    return grouped.reindex(idx, fill_value=0)
 
 
 
-
-
-
-
-
-
-def load_vwaps_for_day(current_day: pd.Timestamp,
-                       vwaps_base_path: str = PRECOMPUTED_VWAP_PATH) -> pd.DataFrame:
+def load_vwaps_for_day(current_day: pd.Timestamp, vwaps_base_path: str) -> pd.DataFrame:
     """
-    DST-sichere Version: Index/Spalten immer als Europe/Berlin mit korrekter Sommerzeit.
-    Erwartet dieselbe Parquet-Struktur wie bisher.
+    Lädt die vorab berechnete VWAP-Matrix für einen Tag aus einer Parquet-Datei.
+
+    Erwartetes Format (wie im Precompute-Skript gespeichert):
+      - index: bucket_end (Execution Time Ende), als String -> hier zurück zu Datetime
+      - columns: deliverystart-Produkte, als String -> hier zurück zu Datetime
+      - values: VWAP-Preis
     """
     fname = os.path.join(vwaps_base_path, f"vwaps_{current_day:%Y-%m-%d}.parquet")
+    vwaps_day = pd.read_parquet(fname)
 
-    if not os.path.exists(fname):
-        raise FileNotFoundError(f"VWAP-Parquet für {current_day:%Y-%m-%d} nicht gefunden: {fname}")
+    # Strings zurück in Timestamps
+    vwaps_day.index = pd.to_datetime(vwaps_day.index)
+    vwaps_day.columns = pd.to_datetime(vwaps_day.columns)
 
-    matrix = pd.read_parquet(fname)
-
-    # Index: execution_time_end (Bucket-Ende)
-    matrix.index = (
-        pd.to_datetime(matrix.index, utc=True)
-          .tz_convert("Europe/Berlin")
-    )
-
-    # Columns: deliverystart-Zeiten
-    matrix.columns = (
-        pd.to_datetime(matrix.columns, utc=True)
-          .tz_convert("Europe/Berlin")
-    )
-
-    return matrix
-
+    return vwaps_day
 
 
 def get_vwap_from_precomputed(
@@ -139,21 +113,30 @@ def get_vwap_from_precomputed(
     execution_time_end: pd.Timestamp,
     end_date: pd.Timestamp,
 ) -> pd.DataFrame:
-    # end_date sollte bereits tz='Europe/Berlin' haben
-    end_date = end_date.tz_convert("Europe/Berlin")
+    """
+    Liefert ein DataFrame im gleichen Format wie früher get_average_prices():
+    index = Produkte (15-min deliverystart), Spalte 'price'.
 
-    start_of_day = end_date - pd.Timedelta(hours=2)
+    Nutzt die vorab berechnete VWAP-Matrix eines Tages.
+    """
+
+    # wie im alten get_average_prices: Produktindex eines Tages bauen
+    start_of_day = pd.to_datetime(end_date) - pd.Timedelta(hours=2)
     start_of_day = start_of_day.replace(hour=0, minute=0)
-    end_of_day   = start_of_day.replace(hour=23, minute=45)
+    end_of_day = start_of_day.replace(hour=23, minute=45)
 
-    product_index = pd.date_range(start_of_day, end_of_day, freq="15min", tz="Europe/Berlin")
+    product_index = pd.date_range(start_of_day, end_of_day, freq="15min")
 
+    # Falls für dieses Bucket-Ende nichts vorliegt:
     if execution_time_end not in vwaps_day.index:
-        return pd.DataFrame(index=product_index, columns=["price"], dtype=float)
+        vwap = pd.DataFrame(index=product_index, columns=["price"], dtype=float)
+        return vwap
 
+    # Reihe aus der Matrix: index = Produkt-Timestamps, values = Preis
     row = vwaps_day.loc[execution_time_end]  # Series
 
-    vwap = row.to_frame(name="price")
+    vwap = pd.DataFrame({"price": row})
+    vwap.index = pd.to_datetime(vwap.index)
     vwap = vwap.reindex(product_index)
 
     return vwap
@@ -161,14 +144,21 @@ def get_vwap_from_precomputed(
 
 
 
-
-def build_battery_model(T, cap, c_rate, roundtrip_eff):
+def build_battery_model(T, cap, c_rate, roundtrip_eff, max_cycles):
+    """
+    Baut das Gurobi-Modell einmalig für einen Tages-Index T (15-Minuten-Produkte).
+    Gibt zurück:
+        - model: Gurobi-Modell
+        - vars:  Dict mit allen Variablen
+        - netting_constr: Dict {t -> Netting-Constraint}, um später RHS updaten zu können
+    """
     efficiency = roundtrip_eff ** 0.5
     M = cap * c_rate
 
     m = gp.Model("battery_persistent")
-    m.Params.OutputFlag = 0
+    m.Params.OutputFlag = 0  # keine Solver-Logs
 
+    # Variablen
     current_buy_qh  = m.addVars(T, lb=0.0, name="current_buy_qh")
     current_sell_qh = m.addVars(T, lb=0.0, name="current_sell_qh")
     battery_soc     = m.addVars(T, lb=0.0, name="battery_soc")
@@ -176,25 +166,26 @@ def build_battery_model(T, cap, c_rate, roundtrip_eff):
     net_buy   = m.addVars(T, lb=0.0, name="net_buy")
     net_sell  = m.addVars(T, lb=0.0, name="net_sell")
     charge_sign = m.addVars(T, vtype=gp.GRB.BINARY, name="charge_sign")
-
+    
     z = m.addVars(T, lb=0.0, name="z")
     w = m.addVars(T, lb=0.0, name="w")
 
     # SOC-Dynamik
-    prev = T[0]
+    previous_index = T[0]
     for i in T[1:]:
         m.addConstr(
             battery_soc[i]
-            == battery_soc[prev]
-            + net_buy[prev] * efficiency / 4.0
-            - net_sell[prev] / 4.0 / efficiency,
+            == battery_soc[previous_index]
+            + net_buy[previous_index] * efficiency / 4.0
+            - net_sell[previous_index] / 4.0 / efficiency,
             name=f"BatteryBalance_{i}",
         )
-        prev = i
+        previous_index = i
 
+    # initialer SOC
     m.addConstr(battery_soc[T[0]] == 0.0, name="InitialBatterySOC")
 
-    # Zeitunabhängige Constraints
+    # Kapazität / Raten / Big-M-Logik (unabhängig von Preisen)
     for i in T:
         m.addConstr(battery_soc[i] <= cap,        name=f"Cap_{i}")
         m.addConstr(net_buy[i]   <= cap * c_rate, name=f"BuyRate_{i}")
@@ -207,35 +198,35 @@ def build_battery_model(T, cap, c_rate, roundtrip_eff):
         m.addConstr(net_buy[i]  <= M * charge_sign[i],       name=f"NetBuyBigM_{i}")
         m.addConstr(net_sell[i] <= M * (1 - charge_sign[i]), name=f"NetSellBigM_{i}")
 
-        m.addConstr(z[i] <= charge_sign[i] * M,                    name=f"ZUpper_{i}")
-        m.addConstr(z[i] <= net_buy[i],                            name=f"ZNetBuy_{i}")
-        m.addConstr(z[i] >= net_buy[i] - (1 - charge_sign[i]) * M, name=f"ZLower_{i}")
-        m.addConstr(z[i] >= 0.0,                                   name=f"ZNonNeg_{i}")
+        m.addConstr(z[i] <= charge_sign[i] * M,                      name=f"ZUpper_{i}")
+        m.addConstr(z[i] <= net_buy[i],                              name=f"ZNetBuy_{i}")
+        m.addConstr(z[i] >= net_buy[i] - (1 - charge_sign[i]) * M,   name=f"ZLower_{i}")
+        m.addConstr(z[i] >= 0.0,                                     name=f"ZNonNeg_{i}")
 
-        m.addConstr(w[i] <= (1 - charge_sign[i]) * M,              name=f"WUpper_{i}")
-        m.addConstr(w[i] <= net_sell[i],                           name=f"WNetSell_{i}")
-        m.addConstr(w[i] >= net_sell[i] - charge_sign[i] * M,      name=f"WLower_{i}")
-        m.addConstr(w[i] >= 0.0,                                   name=f"WNonNeg_{i}")
+        m.addConstr(w[i] <= (1 - charge_sign[i]) * M,                name=f"WUpper_{i}")
+        m.addConstr(w[i] <= net_sell[i],                             name=f"WNetSell_{i}")
+        m.addConstr(w[i] >= net_sell[i] - charge_sign[i] * M,        name=f"WLower_{i}")
+        m.addConstr(w[i] >= 0.0,                                     name=f"WNonNeg_{i}")
 
-    # Netting-Constraints mit RHS=0, später per RHS angepasst:
+    # Netting-Constraints: so formulieren, dass RHS die "alten Trades" wird
     netting_constr = {}
     for i in T:
-        # z[i] - w[i] - current_buy_qh[i] + current_sell_qh[i] = RHS
-        # RHS wird später zu (prev_net_buy - prev_net_sell) gesetzt
+        # z[i] - w[i] - current_buy_qh[i] + current_sell_qh[i] = rhs
+        # rhs wird später als (prev_net_buy - prev_net_sell) gesetzt
         c = m.addConstr(
             z[i] - w[i] - current_buy_qh[i] + current_sell_qh[i] == 0.0,
             name=f"Netting_{i}",
         )
         netting_constr[i] = c
 
-    # Zyklen-Constraint; RHS wird später je nach allowed_cycles gesetzt
-    max_cycles_constr = m.addConstr(
-        gp.quicksum(net_buy[i] * efficiency / 4.0 for i in T) <= 0.0,
+    # Zyklenlimit
+    m.addConstr(
+        gp.quicksum(net_buy[i] * efficiency / 4.0 for i in T) <= max_cycles * cap,
         name="MaxCycles",
     )
 
+    # Noch keine Zielfunktion – die setzen wir pro Bucket neu
     m.setObjective(0.0, gp.GRB.MAXIMIZE)
-    m.update()
 
     vars = {
         "current_buy_qh": current_buy_qh,
@@ -249,64 +240,57 @@ def build_battery_model(T, cap, c_rate, roundtrip_eff):
         "efficiency": efficiency,
     }
 
-    return m, vars, netting_constr, max_cycles_constr
+    m.update()
+    return m, vars, netting_constr
 
 
 
 
 
-
-
-
-def solve_bucket_with_persistent_model(
-    m,
-    vars,
-    netting_constr,
-    max_cycles_constr,
+def run_optimization_quarterhours_repositioning_gurobi(
     prices_qh,
     execution_time,
+    cap,
+    c_rate,
+    roundtrip_eff,
+    max_cycles,
     discount_rate,
-    prev_net_trades,
-    allowed_cycles,
+    prev_net_trades=pd.DataFrame(
+        columns=["sum_buy", "sum_sell", "net_buy", "net_sell", "product"]
+    ),
 ):
-    T = list(prices_qh.index)
-    current_buy_qh  = vars["current_buy_qh"]
-    current_sell_qh = vars["current_sell_qh"]
-    net_buy         = vars["net_buy"]
-    net_sell        = vars["net_sell"]
-    charge_sign     = vars["charge_sign"]
-    z               = vars["z"]
-    w               = vars["w"]
-
-    # 1) Diskontierte Preise vektoriell vorbereiten
+    # --- 1) Daten vorbereiten -------------------------------------------------
+    # Diskontierte Preise (sell/buy) wie bisher, nur einmal vektoriell
     prices_qh_adj_all = adjust_prices_block(prices_qh, execution_time, discount_rate)
+
+    # prev_net_trades an den Index von prices_qh anpassen, fehlende mit 0 füllen
     prev_net_trades = prev_net_trades.reindex(prices_qh.index).fillna(0.0)
 
     e = 0.01
+    efficiency = roundtrip_eff ** 0.5
+    M = cap * c_rate
 
-    # 2) MaxCycles-RHS setzen
-    max_cycles_constr.RHS = allowed_cycles * 1.0  # *cap (falls cap!=1)
+    T = list(prices_qh.index)
 
-    # 3) Netting-RHS und Var-Bounds (NaNs) setzen
-    for i in T:
-        prev_nb = prev_net_trades.loc[i, "net_buy"]
-        prev_ns = prev_net_trades.loc[i, "net_sell"]
+    # --- 2) Modell aufbauen ---------------------------------------------------
+    m = gp.Model("battery")
+    m.Params.OutputFlag = 0  # keine Textausgabe von Gurobi
 
-        # RHS = prev_nb - prev_ns (siehe Herleitung)
-        netting_constr[i].RHS = float(prev_nb - prev_ns)
+    # Variablen
+    current_buy_qh  = m.addVars(T, lb=0.0, name="current_buy_qh")
+    current_sell_qh = m.addVars(T, lb=0.0, name="current_sell_qh")
+    battery_soc     = m.addVars(T, lb=0.0, name="battery_soc")
 
-        price = prices_qh.loc[i, "price"]
-        if pd.isna(price):
-            current_buy_qh[i].UB  = 0.0
-            current_sell_qh[i].UB = 0.0
-        else:
-            # wieder „normal“ freigeben (z.B. cap*c_rate)
-            # hier als Beispiel unbeschränkt nach oben:
-            current_buy_qh[i].UB  = gp.GRB.INFINITY
-            current_sell_qh[i].UB = gp.GRB.INFINITY
+    net_buy   = m.addVars(T, lb=0.0, name="net_buy")
+    net_sell  = m.addVars(T, lb=0.0, name="net_sell")
+    charge_sign = m.addVars(T, vtype=gp.GRB.BINARY, name="charge_sign")
 
-    # 4) Zielfunktion neu aufbauen
+    z = m.addVars(T, lb=0.0, name="z")
+    w = m.addVars(T, lb=0.0, name="w")
+
+    # --- 3) Zielfunktion ------------------------------------------------------
     obj = gp.LinExpr()
+
     for i in T:
         price = prices_qh.loc[i, "price"]
         if pd.isna(price):
@@ -319,11 +303,13 @@ def solve_bucket_with_persistent_model(
         price_buy_adj  = prices_qh_adj_all.loc[i, "price_buy_adj"]
 
         if prev_nb < e and prev_ns < e:
+            # "adjusted_obj" Fall
             term = (
                 current_sell_qh[i] * (price_sell_adj - 0.1 / 2 - e)
                 - current_buy_qh[i] * (price_buy_adj + 0.1 / 2 + e)
             ) / 4.0
         else:
+            # "original_obj" Fall
             term = (
                 current_sell_qh[i] * (price_sell_adj - e)
                 - current_buy_qh[i] * (price_buy_adj + e)
@@ -333,16 +319,80 @@ def solve_bucket_with_persistent_model(
 
     m.setObjective(obj, gp.GRB.MAXIMIZE)
 
-    # 5) Optimieren
+    # --- 4) Nebenbedingungen --------------------------------------------------
+    # SOC-Dynamik (mit deiner aktuellen efficiency-Logik)
+    previous_index = T[0]
+    for i in T[1:]:
+        m.addConstr(
+            battery_soc[i]
+            == battery_soc[previous_index]
+            + net_buy[previous_index] * efficiency / 4.0
+            - net_sell[previous_index] / 4.0 / efficiency,
+            name=f"BatteryBalance_{i}",
+        )
+        previous_index = i
+
+    # Initialer SOC
+    m.addConstr(battery_soc[T[0]] == 0.0, name="InitialBatterySOC")
+
+    # Pro Zeitschritt Constraints
+    for i in T:
+        price = prices_qh.loc[i, "price"]
+
+        if pd.isna(price):
+            # Keine Preise -> keine Trades
+            m.addConstr(current_buy_qh[i] == 0.0,  name=f"NaNBuy_{i}")
+            m.addConstr(current_sell_qh[i] == 0.0, name=f"NaNSell_{i}")
+        else:
+            m.addConstr(battery_soc[i] <= cap,           name=f"Cap_{i}")
+            m.addConstr(net_buy[i]   <= cap * c_rate,    name=f"BuyRate_{i}")
+            m.addConstr(net_sell[i]  <= cap * c_rate,    name=f"SellRate_{i}")
+            m.addConstr(
+                net_sell[i] / efficiency / 4.0 <= battery_soc[i],
+                name=f"SellVsSOC_{i}",
+            )
+
+        # Big-M-Logik bzgl. charge_sign
+        m.addConstr(net_buy[i]  <= M * charge_sign[i],         name=f"NetBuyBigM_{i}")
+        m.addConstr(net_sell[i] <= M * (1 - charge_sign[i]),   name=f"NetSellBigM_{i}")
+
+        m.addConstr(z[i] <= charge_sign[i] * M,             name=f"ZUpper_{i}")
+        m.addConstr(z[i] <= net_buy[i],                     name=f"ZNetBuy_{i}")
+        m.addConstr(z[i] >= net_buy[i] - (1 - charge_sign[i]) * M, name=f"ZLower_{i}")
+        m.addConstr(z[i] >= 0.0,                            name=f"ZNonNeg_{i}")
+
+        m.addConstr(w[i] <= (1 - charge_sign[i]) * M,       name=f"WUpper_{i}")
+        m.addConstr(w[i] <= net_sell[i],                    name=f"WNetSell_{i}")
+        m.addConstr(w[i] >= net_sell[i] - charge_sign[i] * M, name=f"WLower_{i}")
+        m.addConstr(w[i] >= 0.0,                            name=f"WNonNeg_{i}")
+
+        # Nettung
+        m.addConstr(
+            z[i] - w[i]
+            == current_buy_qh[i]
+            + prev_net_trades.loc[i, "net_buy"]
+            - current_sell_qh[i]
+            - prev_net_trades.loc[i, "net_sell"],
+            name=f"Netting_{i}",
+        )
+
+    # Zyklenlimit
+    m.addConstr(
+        gp.quicksum(net_buy[i] * efficiency / 4.0 for i in T) <= max_cycles * cap,
+        name="MaxCycles",
+    )
+
+    # --- 5) Lösen -------------------------------------------------------------
     m.optimize()
 
-    # 6) Ergebnisse einsammeln (wie bisher)
+    # --- 6) Ergebnisse einsammeln ---------------------------------------------
     results = pd.DataFrame(
+        columns=["current_buy_qh", "current_sell_qh", "battery_soc"],
         index=prices_qh.index,
-        columns=["current_buy_qh", "current_sell_qh", "net_buy", "net_sell", "charge_sign", "battery_soc"],
     )
 
     trade_rows = []
+
     for i in T:
         cb = current_buy_qh[i].X
         cs = current_sell_qh[i].X
@@ -356,6 +406,7 @@ def solve_bucket_with_persistent_model(
                 i,
                 -cb * prices_qh.loc[i, "price"] / 4.0,
             ))
+
         if cs is not None and cs > 0:
             trade_rows.append((
                 execution_time,
@@ -371,7 +422,7 @@ def solve_bucket_with_persistent_model(
         results.loc[i, "net_buy"]         = net_buy[i].X
         results.loc[i, "net_sell"]        = net_sell[i].X
         results.loc[i, "charge_sign"]     = charge_sign[i].X
-        results.loc[i, "battery_soc"]     = vars["battery_soc"][i].X
+        results.loc[i, "battery_soc"]     = battery_soc[i].X
 
     trades = pd.DataFrame(
         trade_rows,
@@ -379,11 +430,6 @@ def solve_bucket_with_persistent_model(
     )
 
     return results, trades, m.ObjVal
-
-
-
-
-
 
 
 
@@ -485,15 +531,6 @@ def simulate_period(
         print("trading_start: ", trading_start)
         print("trading_end: ", trading_end)
 
-        # nach Bestimmung von trading_end:
-        start_of_day = trading_end - pd.Timedelta(hours=2)
-        start_of_day = start_of_day.replace(hour=0, minute=0)
-        end_of_day   = start_of_day.replace(hour=23, minute=45)
-
-        T = list(pd.date_range(start_of_day, end_of_day, freq="15min", tz="Europe/Berlin"))
-        m, vars, netting_constr, max_cycles_constr = build_battery_model(T, cap=1, c_rate=c_rate, roundtrip_eff=roundtrip_eff)
-
-
         # VWAP-Matrix für diesen Tag aus Parquet laden
         vwaps_day = load_vwaps_for_day(current_day, vwaps_base_path)
 
@@ -550,16 +587,15 @@ def simulate_period(
                 continue
 
             try:
-                results, trades, profit = solve_bucket_with_persistent_model(
-                    m,
-                    vars,
-                    netting_constr,
-                    max_cycles_constr,
+                results, trades, profit = run_optimization_quarterhours_repositioning_gurobi(
                     vwap,
                     execution_time_start,
+                    1,
+                    c_rate,
+                    roundtrip_eff,
+                    allowed_cycles,
                     discount_rate,
                     net_trades,
-                    allowed_cycles,
                 )
                 all_trades = pd.concat([all_trades, trades])
             except ValueError:

@@ -128,7 +128,7 @@ def prepare_input_data(
             df[
                 [
                     "epex_spot_60min_de_lu_eur_per_mwh",
-                    "exaa_spot_15min_de_lu_eur_per_mwh",
+                    "exaa_15min_de_lu_eur_per_mwh",
                 ]
             ],
         ],
@@ -141,7 +141,7 @@ def prepare_input_data(
         if df.loc[day.isoformat()][
             [
                 "epex_spot_60min_de_lu_eur_per_mwh",
-                "exaa_spot_15min_de_lu_eur_per_mwh",
+                "exaa_15min_de_lu_eur_per_mwh",
                 "load_forecast_d_minus_1_1000_total_de_lu_mw",
                 "pv_forecast_d_minus_1_1000_de_lu_mw",
                 "wind_offshore_forecast_d_minus_1_1000_de_lu_mw",
@@ -158,7 +158,7 @@ def prepare_input_data(
         ].isna().any().any() or df.loc[day.isoformat()][
             [
                 "epex_spot_60min_de_lu_eur_per_mwh",
-                "exaa_spot_15min_de_lu_eur_per_mwh",
+                "exaa_15min_de_lu_eur_per_mwh",
                 "load_forecast_d_minus_1_1000_total_de_lu_mw",
                 "pv_forecast_d_minus_1_1000_de_lu_mw",
                 "wind_offshore_forecast_d_minus_1_1000_de_lu_mw",
@@ -182,7 +182,7 @@ def prepare_input_data(
             {
                 day.isoformat(): {
                     "price_forecast": np.array(
-                        df.loc[day.isoformat()]["exaa_spot_15min_de_lu_eur_per_mwh"]
+                        df.loc[day.isoformat()]["exaa_15min_de_lu_eur_per_mwh"]
                         .astype(np.float32)
                         .values
                     ),
