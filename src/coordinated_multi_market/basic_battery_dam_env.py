@@ -45,7 +45,7 @@ class BasicBatteryDAM(gym.Env):
         self._current_soc = self._start_end_soc
         self._remaining_cycles = 1
         self.action_space = spaces.Discrete(7)
-        self.observation_space = spaces.Box(-1, 1, shape=(42,), dtype=np.float32)
+        self.observation_space = spaces.Box(-1, 1, shape=(43,), dtype=np.float32)
         self._current_time_step = 0
         self._realized_quantity_t_minus_1 = 0
         self._total_profit = 0.0
@@ -55,9 +55,13 @@ class BasicBatteryDAM(gym.Env):
         sin_time_step = np.sin(2 * np.pi * self._current_time_step / 24)
         cos_time_step = np.cos(2 * np.pi * self._current_time_step / 24)
 
+        # Calculate sine and cosine of day of the week
+        sin_day_of_week = np.sin(2 * np.pi * self._day_of_week / 7)
+        cos_day_of_week = np.cos(2 * np.pi * self._day_of_week / 7)
+
         # Calculate sine and cosine of month
         sin_month = np.sin(2 * np.pi * self._date_month / 12)
-        cos_month = np.sin(2 * np.pi * self._date_month / 12)
+        cos_month = np.cos(2 * np.pi * self._date_month / 12)
 
         return np.concatenate(
             (
@@ -74,9 +78,11 @@ class BasicBatteryDAM(gym.Env):
                 self._delta_load_forecast[self._current_time_step],
                 self._delta_pv_forecast_scaled[self._current_time_step],
                 self._delta_wind_onshore_forecast_scaled[self._current_time_step],
+                # encoded month and day of week
                 sin_month,
                 cos_month,
-                self._day_of_week,
+                sin_day_of_week,
+                cos_day_of_week,
                 # get daily RE statistics
                 self._wind_forecast_daily_mean,
                 self._wind_forecast_daily_std,
@@ -332,7 +338,7 @@ class BasicBatteryDAM(gym.Env):
             "load_forecast_d_minus_1_1000_total_de_lu_mw"
         ]
 
-        # 5) Residual Load – fachlich korrekt: Load - PV - Wind_on - Wind_off
+        # 5) Residual Load: Load - PV - Wind_on - Wind_off
         self._residual_load_forecast = (
             self._load_forecast
             - self._pv_forecast
@@ -340,8 +346,7 @@ class BasicBatteryDAM(gym.Env):
             - self._wind_offshore_forecast
         )
 
-        # 6) "Scaled"-Varianten einfach auf global gescalte Werte setzen
-        #    (kein tagesweises MinMax mehr für diese Größen!)
+        # 6) beriets global gescalte Reihen
         self._pv_forecast_scaled = self._pv_forecast
         self._wind_onshore_forecast_scaled = self._wind_onshore_forecast
         self._wind_offshore_forecast_scaled = self._wind_offshore_forecast

@@ -26,7 +26,7 @@ from src.coordinated_multi_market.rolling_intrinsic.testing_rolling_intrinsic_qh
 )
 """
 
-from src.coordinated_multi_market.rolling_intrinsic.new_testing_rolling_intrinsic_qh_intelligent_stacking import (
+from src.coordinated_multi_market.rolling_intrinsic.testing_rolling_intrinsic_gurobi import (
     simulate_days_stacked_quarterhourly_products,
 )
 

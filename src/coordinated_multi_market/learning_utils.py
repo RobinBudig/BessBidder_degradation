@@ -86,8 +86,8 @@ def prepare_input_data(
             "pv_forecast_d_minus_1_1000_de_lu_mw",
             "wind_offshore_forecast_d_minus_1_1000_de_lu_mw",
             "wind_onshore_forecast_d_minus_1_1000_de_lu_mw",
-            "date_month",
-            "day_of_week",
+            #"date_month",
+            #"day_of_week",
             "wind_forecast_daily_mean",
             "wind_forecast_daily_std",
             "spread_id_full_da_qh_mean",
@@ -129,6 +129,8 @@ def prepare_input_data(
                 [
                     "epex_spot_60min_de_lu_eur_per_mwh",
                     "exaa_15min_de_lu_eur_per_mwh",
+                    "date_month",
+                    "day_of_week",
                 ]
             ],
         ],

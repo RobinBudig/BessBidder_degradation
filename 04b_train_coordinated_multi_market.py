@@ -49,11 +49,11 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 
 
 
-RESUME_TRAINING = False  # set to TRUE, if training should be continued from a checkpoint
+RESUME_TRAINING = True      # set to TRUE, if training should be continued from a checkpoint
 
 # Only relevant if RESUME_TRAINING = True
-MODEL_NUMBER = "0"  
-MODEL_CHECKPOINT = "ppo_stacked_checkpoint_200000_steps"
+MODEL_NUMBER = "3"  
+MODEL_CHECKPOINT = "ppo_stacked_checkpoint_280000_steps"
 
 
 if __name__ == "__main__":

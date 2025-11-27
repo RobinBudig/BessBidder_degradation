@@ -10,9 +10,14 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from src.coordinated_multi_market.learning_utils import load_input_data, prepare_input_data
 from src.coordinated_multi_market.basic_battery_dam_env import BasicBatteryDAM
 from src.coordinated_multi_market.custom_ppo import CustomPPO
-from src.coordinated_multi_market.rolling_intrinsic.new_testing_rolling_intrinsic_qh_intelligent_stacking import (
+
+# from src.coordinated_multi_market.rolling_intrinsic.new_testing_rolling_intrinsic_qh_intelligent_stacking import (
+#     simulate_days_stacked_quarterhourly_products,)
+
+from src.coordinated_multi_market.rolling_intrinsic.testing_rolling_intrinsic_gurobi import (
     simulate_days_stacked_quarterhourly_products,
 )
+
 from src.shared.config import (
     BUCKET_SIZE,
     C_RATE,
@@ -27,30 +32,33 @@ from src.shared.config import (
     VAL_END,
 )
 
+
 def _compute_series_stats(series: pd.Series):
-    """Hilfsfunktion: berechne total, mean, median, std, q95 und Sharpe (mean/std)."""
+    """
+    Hilfsfunktion: berechne total, mean, median, std, q95.
+    (Sharpe lassen wir hier weg, wird nicht mehr benötigt.)
+    """
     series = series.dropna()
     if len(series) == 0:
-        return (None, None, None, None, None, None)
+        return (None, None, None, None, None)
 
     total = series.sum()
     mean = series.mean()
     median = series.median()
     std = series.std(ddof=0)
     q95 = series.quantile(0.95) if len(series) > 1 else series.iloc[0]
-    sharpe = mean / std if std and std > 0 else None
 
-    return total, mean, median, std, q95, sharpe
+    return total, mean, median, std, q95
 
 
 if __name__ == "__main__":
 
     # -------- Parameter für die Validierung --------
-    model_number = "0"
+    model_number = "3"
 
     # Start-Checkpoint, ab dem validiert werden soll
     # -> muss dem Namensschema aus dem Training entsprechen
-    start_checkpoint = "ppo_stacked_checkpoint_200000_steps"
+    start_checkpoint = "ppo_stacked_checkpoint_180000_steps"
 
     # Schrittweite der Checkpoints in "Steps"
     STEP_INCREMENT = 10000
@@ -94,40 +102,35 @@ if __name__ == "__main__":
 
     # Summary-Datei für alle Validierungs-Ergebnisse
     summary_path = os.path.join(validation_root_path, "validation_summary.csv")
+
     if os.path.exists(summary_path):
-        validation_summary = pd.read_csv(summary_path)
-    else:
-        validation_summary = pd.DataFrame(
-            columns=[
-                "checkpoint_name",
-                "steps",
-                # RL metrics
-                "mean_rl_reward",
-                "total_rl_reward",
-                # RI total metrics (daily)
-                "num_days_ri",
-                "total_ri_profit",
-                "mean_ri_profit",
-                "median_ri_profit",
-                "std_ri_profit",
-                "q95_ri_profit",
-                "sharpe_ri",
-                # DA metrics
-                "total_dam_profit",
-                "mean_dam_profit",
-                "median_dam_profit",
-                "std_dam_profit",
-                "q95_dam_profit",
-                "sharpe_dam",
-                # IDC metrics
-                "total_idc_profit",
-                "mean_idc_profit",
-                "median_idc_profit",
-                "std_idc_profit",
-                "q95_idc_profit",
-                "sharpe_idc",
-            ]
+        logger.info(
+            f"Existierende validation_summary.csv wird mit neuem Schema überschrieben: {summary_path}"
         )
+
+    validation_summary = pd.DataFrame(
+        columns=[
+            "checkpoint_name",
+            "steps",
+            # RL metrics
+            "mean_rl_reward",
+            "total_rl_reward",
+            # RI total metrics (daily)
+            "num_days_ri",
+            "total_profit",
+            "mean_profit",
+            "median_profit",
+            "std_profit",
+            "q95_profit",
+            "idc_dam_profit_ratio",
+            # DA metrics
+            "total_dam_profit",
+            "mean_dam_profit",
+            # IDC metrics
+            "total_idc_profit",
+            "mean_idc_profit",
+        ]
+    )
 
     # ---- Über Checkpoints iterieren ----
     current_steps = start_steps
@@ -149,7 +152,9 @@ if __name__ == "__main__":
         # ---- RL-Teil auf Validierungsdaten ----
         model = CustomPPO.load(path=checkpoint_file)
 
-        input_data_val = prepare_input_data(df_spot_val, versioned_scaler_path, fit_scaler=False)
+        input_data_val = prepare_input_data(
+            df_spot_val, versioned_scaler_path, fit_scaler=False
+        )
 
         for key, value in input_data_val.items():
             env = BasicBatteryDAM(
@@ -230,24 +235,37 @@ if __name__ == "__main__":
         profit_csv_path = os.path.join(ri_qh_output_path_val, "profit.csv")
         trades_path = os.path.join(ri_qh_output_path_val, "trades")
 
+        # Defaults
         num_days_ri = 0
-        total_ri_profit = mean_ri_profit = median_ri_profit = std_ri_profit = q95_ri_profit = sharpe_ri = None
-        total_dam_profit = mean_dam_profit = median_dam_profit = std_dam_profit = q95_dam_profit = sharpe_dam = None
-        total_idc_profit = mean_idc_profit = median_idc_profit = std_idc_profit = q95_idc_profit = sharpe_idc = None
+        total_profit = mean_profit = median_profit = std_profit = q95_profit = None
+        total_dam_profit = mean_dam_profit = None
+        total_idc_profit = mean_idc_profit = None
+        idc_dam_profit_ratio = None
 
         if os.path.exists(profit_csv_path):
             df_profit = pd.read_csv(profit_csv_path)
-            df_profit = df_profit.sort_values(by="day").reset_index(drop=True)
-            num_days_ri = len(df_profit)
 
-            # Tagesweise Total-Profit
-            df_profit["day"] = pd.to_datetime(df_profit["day"]).dt.date
-            daily_total = df_profit.set_index("day")["profit"]
+            df_profit["day"] = pd.to_datetime(df_profit["day"], errors="coerce", utc=True,)
+            df_profit["day"] = df_profit["day"].dt.tz_convert("Europe/Berlin")
 
-            # Alle Trades einlesen
+            df_profit = df_profit.sort_values("day").reset_index(drop=True)
+
+            df_profit["delivery_day"] = df_profit["day"].dt.date
+            daily_total = df_profit.set_index("delivery_day")["profit"]
+
+            (
+                total_profit,
+                mean_profit,
+                median_profit,
+                std_profit,
+                q95_profit,
+            ) = _compute_series_stats(daily_total)
+
+            # Alle Trades einlesen für DA/IDC-Split
             if os.path.exists(trades_path):
                 trade_files = [
-                    f for f in os.listdir(trades_path)
+                    f
+                    for f in os.listdir(trades_path)
                     if f.startswith("trades_") and f.endswith(".csv")
                 ]
                 all_trades = []
@@ -259,63 +277,68 @@ if __name__ == "__main__":
                 if len(all_trades) > 0:
                     trades_df = pd.concat(all_trades, ignore_index=True)
 
-                    # Zeitzone setzen, falls nötig
+                    # Zeitzone für execution_time setzen, falls nötig
                     if trades_df["execution_time"].dt.tz is None:
-                        trades_df["execution_time"] = trades_df["execution_time"].dt.tz_localize("Europe/Berlin")
+                        trades_df["execution_time"] = trades_df["execution_time"].dt.tz_localize(
+                            "Europe/Berlin"
+                        )
                     else:
-                        trades_df["execution_time"] = trades_df["execution_time"].dt.tz_convert("Europe/Berlin")
+                        trades_df["execution_time"] = trades_df["execution_time"].dt.tz_convert(
+                            "Europe/Berlin"
+                        )
 
-                    trades_df["day"] = trades_df["execution_time"].dt.date
+                    # Lieferzeitpunkt (product) in Datetime → Liefertag
+                    trades_df["delivery_dt"] = pd.to_datetime(
+                        trades_df["product"].astype(str), errors="coerce"
+                    )
+                    trades_df["delivery_day"] = trades_df["delivery_dt"].dt.date
 
-                    # DA = Trades mit execution_time.hour == 13
+                    # DA = Trades, die um 13:00 ausgeführt werden (execution_time)
                     is_dam = trades_df["execution_time"].dt.hour == 13
 
+                    # DA-Profit pro Liefertag
                     daily_dam = (
                         trades_df[is_dam]
-                        .groupby("day")["profit"]
+                        .groupby("delivery_day")["profit"]
                         .sum()
                     )
 
-                    # IDC = total - DA (per Tag)
-                    daily_dam_aligned = daily_dam.reindex(daily_total.index, fill_value=0.0)
+                    # DA-Serie auf alle Liefertage aus profit.csv ausrichten
+                    daily_dam_aligned = daily_dam.reindex(
+                        daily_total.index, fill_value=0.0
+                    )
+
+                    # IDC-Profit = Total - DA (pro Liefertag)
                     daily_idc = daily_total - daily_dam_aligned
 
-                    # ----- Statistiken berechnen -----
-                    # Total
-                    (
-                        total_ri_profit,
-                        mean_ri_profit,
-                        median_ri_profit,
-                        std_ri_profit,
-                        q95_ri_profit,
-                        sharpe_ri,
-                    ) = _compute_series_stats(daily_total)
-
-                    # DA
+                    # DA-Stats (wir nutzen nur total & mean)
                     (
                         total_dam_profit,
                         mean_dam_profit,
-                        median_dam_profit,
-                        std_dam_profit,
-                        q95_dam_profit,
-                        sharpe_dam,
+                        _,
+                        _,
+                        _,
                     ) = _compute_series_stats(daily_dam_aligned)
 
-                    # IDC
+                    # IDC-Stats
                     (
                         total_idc_profit,
                         mean_idc_profit,
-                        median_idc_profit,
-                        std_idc_profit,
-                        q95_idc_profit,
-                        sharpe_idc,
+                        _,
+                        _,
+                        _,
                     ) = _compute_series_stats(daily_idc)
+
+                    # Verhältnis DA / IDC
+                    if total_idc_profit not in (None, 0):
+                        idc_dam_profit_ratio = total_dam_profit / total_idc_profit
+                    else:
+                        idc_dam_profit_ratio = None
 
                 else:
                     logger.warning(f"Keine Trade-Dateien im Pfad {trades_path} gefunden.")
             else:
                 logger.warning(f"Trades-Pfad {trades_path} existiert nicht.")
-
         else:
             logger.warning(
                 f"Keine profit.csv im RI-Output-Pfad {ri_qh_output_path_val} gefunden."
@@ -335,26 +358,18 @@ if __name__ == "__main__":
                             total_rl_reward,
                             # RI total
                             num_days_ri,
-                            total_ri_profit,
-                            mean_ri_profit,
-                            median_ri_profit,
-                            std_ri_profit,
-                            q95_ri_profit,
-                            sharpe_ri,
+                            total_profit,
+                            mean_profit,
+                            median_profit,
+                            std_profit,
+                            q95_profit,
+                            idc_dam_profit_ratio,
                             # DA
                             total_dam_profit,
                             mean_dam_profit,
-                            median_dam_profit,
-                            std_dam_profit,
-                            q95_dam_profit,
-                            sharpe_dam,
                             # IDC
                             total_idc_profit,
                             mean_idc_profit,
-                            median_idc_profit,
-                            std_idc_profit,
-                            q95_idc_profit,
-                            sharpe_idc,
                         ]
                     ],
                     columns=validation_summary.columns,
