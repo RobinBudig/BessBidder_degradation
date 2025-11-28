@@ -49,7 +49,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 
 
 
-RESUME_TRAINING = True      # set to TRUE, if training should be continued from a checkpoint
+RESUME_TRAINING = False      # set to TRUE, if training should be continued from a checkpoint
 
 # Only relevant if RESUME_TRAINING = True
 MODEL_NUMBER = "3"  
@@ -140,10 +140,10 @@ if __name__ == "__main__":
             intraday_product_type="QH",
             policy_kwargs=policy_kwargs,
             ent_coef=0.05,
-            n_steps=512,
-            clip_range=0.4,
-            batch_size=128,
-            vf_coef=0.4,
+            n_steps=480,
+            clip_range=0.2,
+            batch_size=120,
+            vf_coef=0.2,
             learning_rate=linear_schedule(0.003),
         )
         reset_num_timesteps = True

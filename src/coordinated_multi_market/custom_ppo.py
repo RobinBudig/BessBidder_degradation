@@ -196,7 +196,7 @@ class CustomPPO(PPO):
                         "Unsupported intraday product type %s. Only QH or H supported"
                         % self.intraday_product_type
                     )
-
+ 
                 # TODO: Change this scaling it is way too confusing and I need hourly mapping of RI profit
 
                 da_profit = da_trades.profit.sum()
@@ -321,7 +321,7 @@ class CustomPPO(PPO):
         # Calculate episode lengths by finding the difference between consecutive start indices
         episode_lengths = np.diff(episode_indices)
         # Add the length of the last episode (from the last start to the end of the array)
-        final_length = len(episode_starts) - 1 - episode_indices[-1]
+        final_length = len(episode_starts)  - episode_indices[-1]
         episode_lengths = np.append(episode_lengths, final_length)
         episode_dict = {
             index: length
