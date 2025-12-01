@@ -85,6 +85,10 @@ if __name__ == "__main__":
     # Fürs Training nur df_spot_train verwenden
     input_data_train = prepare_input_data(df_spot_train, versioned_scaler_path, fit_scaler=True)
 
+    # Reward components logging path
+    reward_log_path = os.path.join(versioned_log_path, "reward_components.csv")
+    print(f"[Train Script] Reward components CSV: {reward_log_path}")
+
     # Initialize training environment
     env = BasicBatteryDAM(
         modus="train",
@@ -138,6 +142,7 @@ if __name__ == "__main__":
             device=device,
             seed=SEED,
             intraday_product_type="QH",
+            reward_log_path=os.path.join(versioned_log_path, "reward_components.csv"),
             policy_kwargs=policy_kwargs,
             ent_coef=0.05,
             n_steps=480,

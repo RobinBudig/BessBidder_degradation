@@ -1,4 +1,5 @@
 import concurrent.futures
+import os
 
 import numpy as np
 import pandas as pd
@@ -26,12 +27,13 @@ from src.shared.config import BUCKET_SIZE, C_RATE, MAX_CYCLES_PER_DAY, MIN_TRADE
 
 
 class CustomPPO(PPO):
-    def __init__(self, *args, intraday_product_type: str = None, **kwargs):
+    def __init__(self, *args, intraday_product_type: str = None,reward_log_path: str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.intraday_product_type = intraday_product_type
         self.current_step = 0
         self.lambda_val = 0.5
         self._last_ri_reward_per_euro = 0
+        self.reward_log_path = reward_log_path
 
     def collect_rollouts(
         self,
@@ -223,9 +225,73 @@ class CustomPPO(PPO):
                     self.lambda_val * da_rewards
                     + (1 - self.lambda_val) * rolling_intrinsic_rewards
                 )
+
+                # Log reward components -----------------------------------------------
+                # ==== CSV-Logging für eine Episode ====
+                if self.reward_log_path is not None:
+                    log_row = pd.DataFrame(
+                        {
+                            "episode_start_timestamp": [period_timestamps[0]],
+                            "episode_len": [num_rows],
+                            "lambda": [self.lambda_val],
+                            "da_profit_eur": [da_profit],
+                            "idc_profit_eur": [ri_stacked_profit],
+                            "da_reward_sum": [da_rewards.sum()],
+                            "idc_reward_sum": [ri_reward_per_scaled * num_rows],
+                            "combined_reward_sum": [combined_rewards.sum()],
+                            "da_reward_mean": [da_rewards.mean()],
+                            "idc_reward_step": [ri_reward_per_scaled],
+                            "combined_reward_mean": [combined_rewards.mean()],
+                        }
+                    )
+
+                    file_exists = os.path.exists(self.reward_log_path)
+                    log_row.to_csv(
+                        self.reward_log_path,
+                        mode="a",
+                        header=not file_exists,
+                        index=False,
+                    )
+
+                # ==== TensorBoard-Logging ====
+                self.logger.record("reward_components/da_profit_eur", da_profit)
+                self.logger.record("reward_components/idc_profit_eur", ri_stacked_profit)
+                self.logger.record("reward_components/da_reward_mean", da_rewards.mean())
+                self.logger.record("reward_components/idc_reward_step", ri_reward_per_scaled)
+                self.logger.record("reward_components/combined_reward_mean", combined_rewards.mean())
+
+
+                # Step Reward Logging-------------------------------------------------
+                if self.reward_log_path is not None:
+                    step_log_path = self.reward_log_path.replace(".csv", "_steps.csv")
+                    per_step_df = pd.DataFrame(
+                        {
+                            "episode_start_timestamp": [period_timestamps[0]] * num_rows,
+                            "step_in_episode": np.arange(num_rows),
+                            "timestamp": period_timestamps,
+                            "da_reward": da_rewards,
+                            "idc_reward": rolling_intrinsic_rewards,
+                            "combined_reward": combined_rewards,
+                            "position": period_volumes,
+                            "clearing_price": period_clearing_prices,
+                        }
+                    )
+                    file_exists = os.path.exists(step_log_path)
+                    per_step_df.to_csv(
+                        step_log_path,
+                        mode="a",
+                        header=not file_exists,
+                        index=False,
+                    )
+
+                # ---------------------------------------------------------------------
+
                 rollout_buffer.rewards[row_start : row_start + num_rows] = (
                     combined_rewards.reshape(-1, 1)
                 )
+
+                
+                
 
         rollout_buffer.compute_returns_and_advantage(last_values=values, dones=dones)
 
@@ -326,8 +392,8 @@ class CustomPPO(PPO):
         episode_dict = {
             index: length
             for index, length in zip(episode_indices, episode_lengths)
-                if length > 0
-            # if length == 24
+                #if length > 0
+            if length == 24
         }
         return episode_dict
 
