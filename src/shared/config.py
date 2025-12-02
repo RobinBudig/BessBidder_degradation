@@ -61,10 +61,13 @@ LOGGING_PATH_MYOPIC = Path("output/myopic_multi_market/")
 
 # 04 COORDINATED MULTI-MARKET CONFIGURATION
 SEED = 42
-TRAINING_STEPS_INTELLIGENT = 2000000
-TRAINING_STEPS_BASIC = 2000000
+TRAINING_STEPS_INTELLIGENT = 300000
+TRAINING_STEPS_BASIC = 300000
 
 DATA_PATH = Path("data", "simplified_data_jan_with_exaa_and_id_full")
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PRECOMPUTED_VWAP_PATH = PROJECT_ROOT / "data" / "precomputed_vwaps"
 
 COORDINATED_MODEL_NAME_QH = "model_intelligent_quarterhourly_products"
 TRAIN_CSV_NAME = "basic_battery_dam_train_log_v3.csv"

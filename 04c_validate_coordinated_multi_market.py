@@ -54,7 +54,7 @@ def _compute_series_stats(series: pd.Series):
 if __name__ == "__main__":
 
     # -------- Parameter für die Validierung --------
-    model_number = "3"
+    model_number = "1"
 
     # Start-Checkpoint, ab dem validiert werden soll
     # -> muss dem Namensschema aus dem Training entsprechen
@@ -276,7 +276,7 @@ if __name__ == "__main__":
 
                 if len(all_trades) > 0:
                     trades_df = pd.concat(all_trades, ignore_index=True)
-
+                    """
                     # Zeitzone für execution_time setzen, falls nötig
                     if trades_df["execution_time"].dt.tz is None:
                         trades_df["execution_time"] = trades_df["execution_time"].dt.tz_localize(
@@ -286,11 +286,16 @@ if __name__ == "__main__":
                         trades_df["execution_time"] = trades_df["execution_time"].dt.tz_convert(
                             "Europe/Berlin"
                         )
+                    """
+                    trades_df["execution_time"] = pd.to_datetime(trades_df["execution_time"], errors="coerce", utc=True)
+                    trades_df["execution_time"] = trades_df["execution_time"].dt.tz_convert("Europe/Berlin")
+                    
 
                     # Lieferzeitpunkt (product) in Datetime → Liefertag
                     trades_df["delivery_dt"] = pd.to_datetime(
-                        trades_df["product"].astype(str), errors="coerce"
-                    )
+                        trades_df["product"], errors="coerce", utc=True)
+                    trades_df["delivery_dt"] = trades_df["delivery_dt"].dt.tz_convert("Europe/Berlin")
+                
                     trades_df["delivery_day"] = trades_df["delivery_dt"].dt.date
 
                     # DA = Trades, die um 13:00 ausgeführt werden (execution_time)

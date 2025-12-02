@@ -21,7 +21,6 @@ def split_df_by_date(
         raise ValueError("DataFrame-Index muss ein DatetimeIndex sein.")
 
     if df.index.tz is None:
-        # Annahme: Daten sind in UTC gespeichert
         df.index = df.index.tz_localize("utc").tz_convert("Europe/Berlin")
     else:
         df.index = df.index.tz_convert("Europe/Berlin")
@@ -99,15 +98,14 @@ def prepare_input_data(
 
     scaler_file = os.path.join(versioned_scaler_path, "scaler.pkl")
 
-    # --- NEU: Train-/Test-Modus trennen ---
     if fit_scaler:
-        # Train-Phase: Scaler fitten und speichern
+        # Training phase: fit scaler and save
         scaler = MinMaxScaler()
         scaler.fit(scalable_features)
         os.makedirs(versioned_scaler_path, exist_ok=True)
         joblib.dump(scaler, scaler_file)
     else:
-        # Test/Inference: existierenden Scaler laden
+        # Test/Inference: load existing scaler
         if not os.path.exists(scaler_file):
             raise FileNotFoundError(
                 f"Scaler file not found at {scaler_file}. "
@@ -115,13 +113,13 @@ def prepare_input_data(
             )
         scaler = joblib.load(scaler_file)
 
-    # In beiden Fällen: transformieren
+    # In both cases: transform
     features_scaled = scaler.transform(scalable_features)
     df_scaled = pd.DataFrame(
         features_scaled, columns=scalable_features.columns, index=df.index
     )
 
-    # Preise bleiben unskaliert, werden wieder dran gehängt
+    # Prices remain unscaled, appended again
     df = pd.concat(
         [
             df_scaled,

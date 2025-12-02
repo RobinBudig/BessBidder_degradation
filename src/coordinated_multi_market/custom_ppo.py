@@ -156,29 +156,46 @@ class CustomPPO(PPO):
         complete_periods = self._derive_period_lenghts_from_episode_starts_array(
             rollout_buffer.episode_starts.flatten()
         )
+
         for row_start, num_rows in complete_periods.items():
             if num_rows <= 0:
-                continue  # Skip invalid or zero-length episodes
+                continue
+
             period_timestamps = pd.to_datetime(
                 timestamp_buffer[row_start : row_start + num_rows], utc=True
             ).tz_convert("Europe/Berlin")
             period_volumes = position_buffer[row_start : row_start + num_rows]
+
+            # Wenn du nur "aktive" Tage betrachten willst:
             if not self._check_if_complete_cycle(period_volumes):
                 continue
 
-            if (
-                self.num_timesteps >= 200_000
-            ):  # in case you want to first train only on DA for 240_000 -> set num_timesteps to 240_000)
-                period_clearing_prices = clearing_price_buffer[
-                    row_start : row_start + num_rows
-                ]
-                da_trades = self._derive_day_ahead_trades(
-                    timestamps=period_timestamps,
-                    volumes=period_volumes,
-                    clearing_prices=period_clearing_prices,
-                    intraday_product_type=self.intraday_product_type,
-                )
+            period_clearing_prices = clearing_price_buffer[
+                row_start : row_start + num_rows
+            ]
 
+            # --- DA-Teil: immer vorhanden ---
+            da_rewards = rollout_buffer.rewards[row_start : row_start + num_rows].flatten()
+
+            # optional: DA-Profit immer berechnen (ist billig)
+            da_trades = self._derive_day_ahead_trades(
+                timestamps=period_timestamps,
+                volumes=period_volumes,
+                clearing_prices=period_clearing_prices,
+                intraday_product_type=self.intraday_product_type,
+            )
+            if len(da_trades) > 0:
+                da_profit = da_trades.profit.sum()
+            else:
+                da_profit = 0.0
+
+            # Default-Values for IDC (before 200k or if no simulation)
+            ri_stacked_profit = 0.0
+            ri_reward_per_scaled = 0.0
+            rolling_intrinsic_rewards = np.zeros(num_rows, dtype=float)
+
+            # IDC starting at 200k Steps
+            if self.num_timesteps >= 200_000:
                 if self.intraday_product_type == "H":
                     (
                         rolling_intrinsic_results_stacked,
@@ -187,102 +204,105 @@ class CustomPPO(PPO):
                         period_timestamps, da_trades
                     )
                 elif self.intraday_product_type == "QH":
-                    (
-                        rolling_intrinsic_results_stacked
-                        # rolling_intrinsic_results_non_stacked,
-                    ) = self.run_simulations_quarterhourly_products_in_parallel(
-                        period_timestamps, da_trades
+                    rolling_intrinsic_results_stacked = (
+                        self.run_simulations_quarterhourly_products_in_parallel(
+                            period_timestamps, da_trades
+                        )
                     )
                 else:
                     raise ValueError(
-                        "Unsupported intraday product type %s. Only QH or H supported"
-                        % self.intraday_product_type
+                        f"Unsupported intraday product type {self.intraday_product_type}. Only QH or H supported"
                     )
- 
-                # TODO: Change this scaling it is way too confusing and I need hourly mapping of RI profit
 
-                da_profit = da_trades.profit.sum()
-                da_reward_sum = (
-                    rollout_buffer.rewards[row_start : row_start + num_rows]
-                    .flatten()
-                    .sum()
-                )
+                # If no trades / no profit
+                if len(rolling_intrinsic_results_stacked) > 0:
+                    ri_stacked_profit = rolling_intrinsic_results_stacked["total_profit"].sum()
+                    ri_reward_per_scaled = ri_stacked_profit / 85 / num_rows
+                    rolling_intrinsic_rewards = np.repeat(
+                        ri_reward_per_scaled, num_rows
+                    )
 
-                ri_stacked_profit = rolling_intrinsic_results_stacked[
-                    "total_profit"
-                ].sum()
-
-                ri_reward_per_scaled = ri_stacked_profit / (85) / num_rows
-
-                # just scale by average reward made in IDM in naive case
-                rolling_intrinsic_rewards = np.repeat(ri_reward_per_scaled, num_rows)
-
-                da_rewards = rollout_buffer.rewards[
-                    row_start : row_start + num_rows
-                ].flatten()
-
+                # From here: combined_reward is actually used for PPO
                 combined_rewards = (
                     self.lambda_val * da_rewards
                     + (1 - self.lambda_val) * rolling_intrinsic_rewards
                 )
 
-                # Log reward components -----------------------------------------------
-                # ==== CSV-Logging für eine Episode ====
-                if self.reward_log_path is not None:
-                    log_row = pd.DataFrame(
-                        {
-                            "episode_start_timestamp": [period_timestamps[0]],
-                            "episode_len": [num_rows],
-                            "lambda": [self.lambda_val],
-                            "da_profit_eur": [da_profit],
-                            "idc_profit_eur": [ri_stacked_profit],
-                            "da_reward_sum": [da_rewards.sum()],
-                            "idc_reward_sum": [ri_reward_per_scaled * num_rows],
-                            "combined_reward_sum": [combined_rewards.sum()],
-                            "da_reward_mean": [da_rewards.mean()],
-                            "idc_reward_step": [ri_reward_per_scaled],
-                            "combined_reward_mean": [combined_rewards.mean()],
-                        }
-                    )
+                rollout_buffer.rewards[row_start : row_start + num_rows] = (
+                    combined_rewards.reshape(-1, 1)
+                )
 
-                    file_exists = os.path.exists(self.reward_log_path)
-                    log_row.to_csv(
-                        self.reward_log_path,
-                        mode="a",
-                        header=not file_exists,
-                        index=False,
-                    )
+            else:
+                # Before 200k Steps: combined_reward = pure DA-Reward
+                # (Training remains DA-only because we do NOT overwrite the buffer)
+                combined_rewards = da_rewards.copy()
 
-                # ==== TensorBoard-Logging ====
-                self.logger.record("reward_components/da_profit_eur", da_profit)
-                self.logger.record("reward_components/idc_profit_eur", ri_stacked_profit)
-                self.logger.record("reward_components/da_reward_mean", da_rewards.mean())
-                self.logger.record("reward_components/idc_reward_step", ri_reward_per_scaled)
-                self.logger.record("reward_components/combined_reward_mean", combined_rewards.mean())
+            # ==== CSV-Logging (always, from Step 0) ====
+            if self.reward_log_path is not None:
+                log_row = pd.DataFrame(
+                    {
+                        "episode_start_timestamp": [period_timestamps[0]],
+                        "episode_len": [num_rows],
+                        "lambda": [self.lambda_val],
+                        "da_profit_eur": [da_profit],
+                        "idc_profit_eur": [ri_stacked_profit],
+                        "da_reward_sum": [da_rewards.sum()],
+                        "idc_reward_sum": [rolling_intrinsic_rewards.sum()],
+                        "combined_reward_sum": [combined_rewards.sum()],
+                        "da_reward_mean": [da_rewards.mean()],
+                        "idc_reward_step": [ri_reward_per_scaled],
+                        "combined_reward_mean": [combined_rewards.mean()],
+                    }
+                )
 
+                file_exists = os.path.exists(self.reward_log_path)
+                log_row.to_csv(
+                    self.reward_log_path,
+                    mode="a",
+                    header=not file_exists,
+                    index=False,
+                )
 
-                # Step Reward Logging-------------------------------------------------
-                if self.reward_log_path is not None:
-                    step_log_path = self.reward_log_path.replace(".csv", "_steps.csv")
-                    per_step_df = pd.DataFrame(
-                        {
-                            "episode_start_timestamp": [period_timestamps[0]] * num_rows,
-                            "step_in_episode": np.arange(num_rows),
-                            "timestamp": period_timestamps,
-                            "da_reward": da_rewards,
-                            "idc_reward": rolling_intrinsic_rewards,
-                            "combined_reward": combined_rewards,
-                            "position": period_volumes,
-                            "clearing_price": period_clearing_prices,
-                        }
-                    )
-                    file_exists = os.path.exists(step_log_path)
-                    per_step_df.to_csv(
-                        step_log_path,
-                        mode="a",
-                        header=not file_exists,
-                        index=False,
-                    )
+            # ==== TensorBoard-Logging ====
+            self.logger.record("reward_components/da_profit_eur", da_profit)
+            self.logger.record("reward_components/idc_profit_eur", ri_stacked_profit)
+            self.logger.record("reward_components/da_reward_mean", da_rewards.mean())
+            self.logger.record("reward_components/idc_reward_step", ri_reward_per_scaled)
+            self.logger.record(
+                "reward_components/combined_reward_mean", combined_rewards.mean()
+            )
+
+            # Optional extra: episodic returns for better comparison
+            self.logger.record(
+                "reward_components/env_ep_return", da_rewards.sum()
+            )
+            self.logger.record(
+                "reward_components/combined_ep_return", combined_rewards.sum()
+            )
+
+            # Step-Logging (per time step within the episode)
+            if self.reward_log_path is not None:
+                step_log_path = self.reward_log_path.replace(".csv", "_steps.csv")
+                per_step_df = pd.DataFrame(
+                    {
+                        "episode_start_timestamp": [period_timestamps[0]] * num_rows,
+                        "step_in_episode": np.arange(num_rows),
+                        "timestamp": period_timestamps,
+                        "da_reward": da_rewards,
+                        "idc_reward": rolling_intrinsic_rewards,
+                        "combined_reward": combined_rewards,
+                        "position": period_volumes,
+                        "clearing_price": period_clearing_prices,
+                    }
+                )
+                file_exists = os.path.exists(step_log_path)
+                per_step_df.to_csv(
+                    step_log_path,
+                    mode="a",
+                    header=not file_exists,
+                    index=False,
+                )
+
 
                 # ---------------------------------------------------------------------
 
@@ -392,14 +412,14 @@ class CustomPPO(PPO):
         episode_dict = {
             index: length
             for index, length in zip(episode_indices, episode_lengths)
-                #if length > 0
-            if length == 24
+                if length > 0
+            #if length == 24
         }
         return episode_dict
 
     @staticmethod
     def _check_if_complete_cycle(period_volumes, capacity: float = 1.0,
-                             min_cycle_fraction: float = 0.8):
+                             min_cycle_fraction: float = 1.0):
         traded_volume = abs(period_volumes).sum()
         cycle_fraction = traded_volume / (2 * capacity)
         return cycle_fraction >= min_cycle_fraction

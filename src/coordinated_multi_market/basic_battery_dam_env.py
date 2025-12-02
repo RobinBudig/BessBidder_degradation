@@ -278,10 +278,9 @@ class BasicBatteryDAM(gym.Env):
 
 
     def _reinitialize_input_data_after_reset(self) -> None:
-        # 1) Zufälligen Tag ziehen
+
         self._random_day = self._sample_random_day()
 
-        # 2) Preise (nicht global gescaled, deshalb hier tagesweise ok)
         self._forecasted_price_vector = self._input_data[self._random_day]["price_forecast"]
         self._realized_price_vector = self._input_data[self._random_day]["price_realized"]
 
@@ -290,7 +289,7 @@ class BasicBatteryDAM(gym.Env):
         self._min_price_forecasted = np.min(self._forecasted_price_vector)
         self._max_price_forecasted = np.max(self._forecasted_price_vector)
 
-        # tagesweise Scaling NUR für Preise (die vorher nicht global gescaled wurden)
+        # Daily scaling ONLY for prices (which were not globally scaled before)
         self._forecasted_price_vector_scaled = (
             self._forecasted_price_vector - self._min_price_forecasted
         ) / (self._max_price_forecasted - self._min_price_forecasted)
@@ -299,7 +298,7 @@ class BasicBatteryDAM(gym.Env):
             self._realized_price_vector - self._min_price_realized
         ) / (self._max_price_realized - self._min_price_realized)
 
-        # 3) Scalar-Features (bereits global gescaled via MinMaxScaler aus prepare_input_data)
+        # Scalar-Features (already globally scaled via MinMaxScaler from prepare_input_data)
         self._date_month = self._input_data[self._random_day]["date_month"][0]
         self._day_of_week = self._input_data[self._random_day]["day_of_week"][0]
         self._wind_forecast_daily_mean = self._input_data[self._random_day][
@@ -321,10 +320,10 @@ class BasicBatteryDAM(gym.Env):
             "spread_id_full_da_max"
         ][0]
 
-        # Zeitstempel
+        # Timestamps
         self._timestamps = self._input_data[self._random_day]["timestamps"]
 
-        # 4) Forecast-Zeitreihen (bereits global gescaled vom Scaler!)
+        # Forecast time series (already globally scaled by the scaler!)
         self._pv_forecast = self._input_data[self._random_day][
             "pv_forecast_d_minus_1_1000_de_lu_mw"
         ]
@@ -338,7 +337,7 @@ class BasicBatteryDAM(gym.Env):
             "load_forecast_d_minus_1_1000_total_de_lu_mw"
         ]
 
-        # 5) Residual Load: Load - PV - Wind_on - Wind_off
+        # 5) Residual Load
         self._residual_load_forecast = (
             self._load_forecast
             - self._pv_forecast
@@ -346,21 +345,21 @@ class BasicBatteryDAM(gym.Env):
             - self._wind_offshore_forecast
         )
 
-        # 6) beriets global gescalte Reihen
+        # 6) already globally scaled series
         self._pv_forecast_scaled = self._pv_forecast
         self._wind_onshore_forecast_scaled = self._wind_onshore_forecast
         self._wind_offshore_forecast_scaled = self._wind_offshore_forecast
         self._load_forecast_scaled = self._load_forecast
         self._residual_load_forecast_scaled = self._residual_load_forecast
 
-        # 7) Tagesstatistiken (auf global gescalten Reihen)
+        # 7) Daily statistics (on globally scaled series)
         self._pv_forecast_daily_mean = np.mean(self._pv_forecast)
         self._pv_forecast_daily_std = np.std(self._pv_forecast)
 
         self._load_forecast_daily_mean = np.mean(self._load_forecast)
         self._load_forecast_daily_std = np.std(self._load_forecast)
 
-        # 8) Gradienten (auf den "scaled" Reihen – hier identisch mit oben)
+        # 8) Gradients (on the "scaled" series – here identical to above)
         self._delta_load_forecast = np.append(np.diff(self._load_forecast_scaled), 0)
         self._delta_pv_forecast_scaled = np.append(np.diff(self._pv_forecast_scaled), 0)
         self._delta_wind_onshore_forecast_scaled = np.append(
