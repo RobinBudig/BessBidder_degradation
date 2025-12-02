@@ -304,3 +304,5 @@ class ThesisDBHook:
         df.sort_index(inplace=True)
         df.dropna(inplace=True)
         return df
+    
+

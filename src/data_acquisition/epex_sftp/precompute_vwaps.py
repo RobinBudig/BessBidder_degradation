@@ -13,8 +13,8 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv()
 
-warnings.filterwarnings("ignore", category=UserWarning)
-warnings.filterwarnings("ignore", category=FutureWarning)
+#warnings.filterwarnings("ignore", category=UserWarning)
+#warnings.filterwarnings("ignore", category=FutureWarning)
 
 # --- Database configuration -------------------------------------------------
 

@@ -28,6 +28,7 @@ from src.data_acquisition.epex_sftp.intraday_transactions_old_format import (
 )
 from src.data_acquisition.postgres_db.postgres_db_hooks import ThesisDBHook
 
+
 from src.data_acquisition.epex_sftp.build_idfull import run_build_idfull_and_merge
 
 from src.shared.config import DATA_START, DATA_END, PRECOMPUTED_VWAP_PATH
@@ -73,14 +74,12 @@ thesis_db_hook = ThesisDBHook(username=POSTGRES_USERNAME, hostname=POSTGRES_DB_H
 exaa_auction_prices = thesis_db_hook.get_auction_prices(
     start=start, end=end, id="exaa_15min_de_lu_eur_per_mwh"
 )
-
 """
 # Fetch auction prices for EPEX Spot (15 min resolution)
 epex_spot_15min_prices = thesis_db_hook.get_auction_prices(
     start=start, end=end, id="epex_spot_15min_de_lu_eur_per_mwh"
 )
 """
-
 # Fetch auction prices for EPEX Spot (60 min resolution)
 da_auction_prices_60 = thesis_db_hook.get_auction_prices(
     start=start, end=end, id="epex_spot_60min_de_lu_eur_per_mwh"
@@ -101,6 +100,8 @@ vre_df = thesis_db_hook.get_forecast(
     start=start,
     end=end,
 )
+
+
 
 # Combine all data into one DataFrame
 data = pd.concat([da_auction_prices_60, exaa_auction_prices, demand_df, vre_df], axis=1)
@@ -143,3 +144,4 @@ def run_vwap_precompute():
         output_path=PRECOMPUTED_VWAP_PATH,
     )
 
+run_vwap_precompute()
