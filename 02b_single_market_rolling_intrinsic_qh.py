@@ -14,7 +14,7 @@ from src.shared.config import (
 )
 #from src.single_market.rolling_intrinsic_new import simulate_period
 #from src.single_market.rolling_intrinsic_new_copy import simulate_period
-from src.single_market.rolling_intrinsic_gurobi import simulate_period
+from src.single_market.rolling_intrinsic_gurobi_qh import simulate_period
 
 load_dotenv()
 
