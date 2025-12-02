@@ -236,7 +236,7 @@ class ThesisDBHook:
         df.set_index("time", inplace=True)
         df.index = pd.to_datetime(df.index, utc=True)
         df.sort_index(inplace=True)
-        df.dropna(inplace=True)
+        #df.dropna(inplace=True)
         return df
 
     def get_afrr_capacity_price(

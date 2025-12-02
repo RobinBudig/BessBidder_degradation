@@ -48,6 +48,7 @@ POSTGRES_DB_HOST = os.getenv("POSTGRES_DB_HOST")
 start = DATA_START
 end = DATA_END
 
+
 # -------------------------------------------------------
 # WRITE DATA INTO DATABASE
 
@@ -120,6 +121,8 @@ if not os.path.exists(output_path):
 csv_path = Path(output_path, f"data_{data_start}_{data_end}_hourly.csv")
 data_hourly.to_csv(csv_path)
 
+
+csv_path = Path(output_path, f"data_{data_start}_{data_end}_hourly.csv")
 
 # Run id_full rebuild + merge
 merged_df = run_build_idfull_and_merge(
