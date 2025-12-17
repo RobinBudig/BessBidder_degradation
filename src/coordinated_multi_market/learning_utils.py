@@ -85,7 +85,7 @@ def prepare_input_data(
             "pv_forecast_d_minus_1_1000_de_lu_mw",
             "wind_offshore_forecast_d_minus_1_1000_de_lu_mw",
             "wind_onshore_forecast_d_minus_1_1000_de_lu_mw",
-            #"date_month",
+            #"date_month",?
             #"day_of_week",
             "wind_forecast_daily_mean",
             "wind_forecast_daily_std",

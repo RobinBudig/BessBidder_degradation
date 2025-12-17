@@ -12,13 +12,6 @@ from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.ppo import PPO
 
 
-#from src.coordinated_multi_market.rolling_intrinsic.training_rolling_intrinsic_h_intelligent_stacking import (
-#    simulate_period_hourly_products,
-#)
-
-#from src.coordinated_multi_market.rolling_intrinsic.new_training_rolling_intrinsic_qh_intelligent_stacking import (
-#    simulate_days_stacked_quarterhourly_products,)
-
 from src.coordinated_multi_market.rolling_intrinsic.training_rolling_intrinsic_qh_intelligent_stacking import (
     simulate_days_stacked_quarterhourly_products,)
 
@@ -146,8 +139,6 @@ class CustomPPO(PPO):
                 timestamp_buffer[n_steps - 1] = infos[0]["timestamp"]
                 position_buffer[n_steps - 1] = infos[0]["position"]
                 clearing_price_buffer[n_steps - 1] = infos[0]["clearing_price"]
-                scaling_max_price = infos[0]["scaling_max_price"]
-                scaling_min_price = infos[0]["scaling_min_price"]
 
         with th.no_grad():
             # Compute value for the last timestep
@@ -177,6 +168,7 @@ class CustomPPO(PPO):
             # --- DA-Teil: immer vorhanden ---
             da_rewards = rollout_buffer.rewards[row_start : row_start + num_rows].flatten()
 
+            # TODO: Wenn du es immer berechnest warum ist es dann optional?
             # optional: DA-Profit immer berechnen (ist billig)
             da_trades = self._derive_day_ahead_trades(
                 timestamps=period_timestamps,
@@ -195,11 +187,12 @@ class CustomPPO(PPO):
             rolling_intrinsic_rewards = np.zeros(num_rows, dtype=float)
 
             # IDC starting at 200k Steps
+            # TODO: Das auch aus config übernehmen
             if self.num_timesteps >= 200_000:
                 if self.intraday_product_type == "H":
                     (
                         rolling_intrinsic_results_stacked,
-                        rolling_intrinsic_results_non_stacked,
+                        _,
                     ) = self.run_simulations_hourly_products_in_parallel(
                         period_timestamps, da_trades
                     )
@@ -327,19 +320,15 @@ class CustomPPO(PPO):
     ):
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future_stacked = executor.submit(
-                #simulate_period_quarterhourly_products,
                 simulate_days_stacked_quarterhourly_products,
                 start_day=period_timestamps[0],
                 end_day=period_timestamps[0] + pd.Timedelta(days=1),
-                #threshold=0,
-                # threshold_abs_min=0,
                 discount_rate=0,
                 bucket_size=BUCKET_SIZE,
                 c_rate=C_RATE,
                 roundtrip_eff=RTE,
                 max_cycles=MAX_CYCLES_PER_DAY,
                 min_trades=MIN_TRADES,
-                #day_ahead_trades_drl=da_trades,
                 drl_output=da_trades
             )
 
@@ -422,12 +411,10 @@ class CustomPPO(PPO):
                              min_cycle_fraction: float = 1.0):
         traded_volume = abs(period_volumes).sum()
         cycle_fraction = traded_volume / (2 * capacity)
+        
+        # TODO: Wieso hier größer gleich? IN welchem Case erlaubst du mehr als 1 Cycle?
         return cycle_fraction >= min_cycle_fraction
-    
-    #def _check_if_complete_cycle(period_volumes):
-    #    traded_volume = abs(period_volumes).sum()
-    #    return traded_volume / (2 * 1) == 1
-    
+ 
 
 
     @staticmethod
@@ -473,7 +460,6 @@ class CustomPPO(PPO):
                                 "side": side,
                                 "quantity": net_volume,
                                 "price": price,
-                                #"product": timestamps[idx],
                                 "product": product_index,
                                 "profit": profit / 4,
                             }

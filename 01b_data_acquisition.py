@@ -20,18 +20,11 @@ load_dotenv(find_dotenv(), override=True)
 
 
 from src.data_acquisition.entso_e.entso_e import fill_database_with_entsoe_data
-from src.data_acquisition.epex_sftp.intraday_transactions_new_format import (
-    execute_etl_transactions_new_format,
-)
-from src.data_acquisition.epex_sftp.intraday_transactions_old_format import (
-    execute_etl_transactions_old_format,
-)
+
 from src.data_acquisition.postgres_db.postgres_db_hooks import ThesisDBHook
 
 
-from src.data_acquisition.epex_sftp.build_idfull import run_build_idfull_and_merge
-
-from src.shared.config import DATA_START, DATA_END, PRECOMPUTED_VWAP_PATH
+from src.shared.config import DATA_START, DATA_END, PRECOMPUTED_VWAP_PATH, BUCKET_SIZE, MIN_TRADES
 from src.data_acquisition.epex_sftp.precompute_vwaps import precompute_range
 
 
@@ -125,23 +118,17 @@ data_hourly.to_csv(csv_path)
 
 csv_path = Path(output_path, f"data_{data_start}_{data_end}_hourly.csv")
 
-# Run id_full rebuild + merge
-merged_df = run_build_idfull_and_merge(
-    csv_in=str(csv_path),
-    csv_out=str(csv_path)
-)
+
 
 # Run precompute VWAPs which computes VWAPS matrices and saves them as parquet files
 # VWAPs are stored in PRECOMPUTED_VWAP_PATH defined in shared/config.py
 # You can adjust bucket size and min trades as needed
 # Matrices are required for Rolling Intrinsic Algortihm
-def run_vwap_precompute():
-    precompute_range(
-        start_day=DATA_START,
-        end_day=DATA_END,
-        bucket_size=15,
-        min_trades=10,
-        output_path=PRECOMPUTED_VWAP_PATH,
-    )
 
-run_vwap_precompute()
+precompute_range(
+    start_day=DATA_START,
+    end_day=DATA_END,
+    bucket_size=BUCKET_SIZE,
+    min_trades=MIN_TRADES,
+    output_path=PRECOMPUTED_VWAP_PATH,
+)

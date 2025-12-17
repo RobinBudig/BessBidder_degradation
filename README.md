@@ -40,6 +40,19 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Database Configuration
+
+To prepare a local PostgreSQL instance:
+
+```sql
+CREATE USER <username>;
+CREATE DATABASE epex_data;
+GRANT ALL PRIVILEGES ON DATABASE epex_data TO <username>;
+ALTER DATABASE epex_data OWNER TO <username>;
+```
+
+Edit `pg_hba.conf` to set authentication method to `trust` for local development.
+
 ### Create `.env` file for credentials:
 
 This file manages all access credentials for the database and APIs. Specify them before starting to work with the notebook. *IMPORTANT NOTE*: EPEX Spot data is not open-source and for you to use the notebook, you will have to have bought the data. 
@@ -59,18 +72,6 @@ EPEX_SFTP_PW=...
 
 In this file, you can define technical parameters of the model, the time horizon, and output paths. Please configure these settings before starting data acquisition, as the download depends on your study setup. 
 
-## Database Configuration
-
-To prepare a local PostgreSQL instance:
-
-```sql
-CREATE USER <username>;
-CREATE DATABASE epex_data;
-GRANT ALL PRIVILEGES ON DATABASE epex_data TO <username>;
-ALTER DATABASE epex_data OWNER TO <username>;
-```
-
-Edit `pg_hba.conf` to set authentication method to `trust` for local development.
 
 ## Data Acquisition
 
@@ -82,6 +83,8 @@ Steps:
 2. Load intraday transaction data (pre/post 2022 formats)
 
 Alternatively, run the scripts in `src/data_acquisition/epex_sftp/` directly.
+
+These scripts collect all input data required to run the simulation, except for EXAA prices which are used as price forecasts. Access to a dedicated API is available but incurs additional cost. As a workaround, we currently use historical EPEX spot prices as a proxy, which implies a perfect-foresight assumption in the simulation setup. The results in the orginial paper, however, are calculated on the EXAA prices as forecasts. 
 
 ## Single-Market Bidding
 

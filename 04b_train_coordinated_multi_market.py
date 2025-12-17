@@ -31,7 +31,6 @@ from src.coordinated_multi_market.learning_utils import (
     prepare_input_data,
     linear_schedule,
     orthogonal_weight_init,
-    # CustomPPO,
 )
 
 from src.shared.folder_versioning import create_new_dir_version

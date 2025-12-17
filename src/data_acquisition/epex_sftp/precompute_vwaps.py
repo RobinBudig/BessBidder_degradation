@@ -13,9 +13,6 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv()
 
-#warnings.filterwarnings("ignore", category=UserWarning)
-#warnings.filterwarnings("ignore", category=FutureWarning)
-
 # --- Database configuration -------------------------------------------------
 
 PASSWORD = os.getenv("SQL_PASSWORD")
@@ -90,7 +87,6 @@ def precompute_vwaps_for_day(
           AND executiontime <  '{trading_end:%Y-%m-%d %H:%M:%S}'
           AND side = 'BUY';
     """
-    # Note: for production use, prefer parameterized queries instead of f-strings.
 
     with psycopg2.connect(CONNECTION) as conn, conn.cursor() as cursor:
         cursor.execute(query)
@@ -103,6 +99,7 @@ def precompute_vwaps_for_day(
         logger.warning(" → No trades found for this day, skipping.")
         return
 
+    # TODO: Hast du hier verifziert ob das wie gewünscht funktioniert sieht ganz schön wild aus das UTC handling... 
     # Normalize timezones to Europe/Berlin
     df["executiontime"] = pd.to_datetime(df["executiontime"], utc=True).dt.tz_convert(
         "Europe/Berlin"
@@ -129,17 +126,19 @@ def precompute_vwaps_for_day(
     )
 
     # All quarter-hourly products for this delivery day
+    # TODO: Warum ist das so umständlich definiert? start und end of day sind doch eh fixe Werte? 
     start_of_day = (trading_end - pd.Timedelta(hours=2)).replace(hour=0, minute=0)
     end_of_day = start_of_day.replace(hour=23, minute=45)
     product_index = pd.date_range(start_of_day, end_of_day, freq="15min")
 
     # 3. Aggregate VWAPs
     # -------------------------------------------------------------------------
-    # Precompute trade value (price * volume) for clarity
-    df["trade_value"] = df["price"] * df["volume"]
+    # Precompute volume_weighted_price (price * volume) for clarity
+    
+    df["volume_weighted_price"] = df["price"] * df["volume"]
 
     grouped = df.groupby(["bucket_end", "deliverystart"]).agg(
-        total_value=("trade_value", "sum"),
+        total_value=("volume_weighted_price", "sum"),
         total_volume=("volume", "sum"),
         total_trades=("trade_count", "sum"),
     )
@@ -263,11 +262,8 @@ if __name__ == "__main__":
     
     # Run python precompute_vwaps.py only
     
-    from src.shared.config import DATA_START, DATA_END, PRECOMPUTED_VWAP_PATH
+    from src.shared.config import DATA_START, DATA_END, PRECOMPUTED_VWAP_PATH, BUCKET_SIZE, MIN_TRADES
 
-    # You can hard-code or later replace these with argparse if needed
-    BUCKET_SIZE = 15
-    MIN_TRADES = 10
 
     precompute_range(
         start_day=DATA_START,

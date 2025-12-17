@@ -108,7 +108,6 @@ def create_dataframes():
 
     df = df[~df.index.to_series().apply(lambda x: x.date()).isin(missing_days)]
 
-    #df = df.loc["2019":"2023"].copy()
 
     df = make_time_features(df)
     df = derive_daily_wind_forecast_stats(df)

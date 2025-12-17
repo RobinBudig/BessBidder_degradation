@@ -5,18 +5,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
-"""
-def load_data(csv_path: str) -> pd.DataFrame:
-    df = pd.read_csv(csv_path, index_col="time", parse_dates=True)
 
-    try:
-        df.index = df.index.tz_localize("utc").tz_convert("Europe/Berlin")
-    except TypeError:
-        df.index = df.index.tz_localize(None).tz_localize("Europe/Berlin")
-    df["action_in_mw"] = (df[["action_1"]] - 1) / 1
-    df["date"] = df.index.date
-    return df
-"""
 def load_data(csv_path):
     df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
 
@@ -26,7 +15,8 @@ def load_data(csv_path):
     else:
         # Index ist bereits tz-aware → nur noch nach Europe/Berlin umrechnen
         df.index = df.index.tz_convert("Europe/Berlin")
-
+    df["action_in_mw"] = (df[["action_1"]] - 1) / 1
+    df["date"] = df.index.date
     return df
 
 

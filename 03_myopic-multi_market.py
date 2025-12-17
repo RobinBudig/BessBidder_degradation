@@ -17,15 +17,6 @@ import os
 import pandas as pd
 from loguru import logger
 
-#from src.coordinated_multi_market.rolling_intrinsic.testing_rolling_intrinsic_h_intelligent_stacking import (
-#    simulate_period_stacked_hourly_products,
-#)
-"""
-from src.coordinated_multi_market.rolling_intrinsic.testing_rolling_intrinsic_qh_intelligent_stacking import (
-    simulate_period_stacked_quarterhourly_products,
-)
-"""
-
 from src.coordinated_multi_market.rolling_intrinsic.testing_rolling_intrinsic_qh_intelligent_stacking import (
     simulate_days_stacked_quarterhourly_products,
 )
