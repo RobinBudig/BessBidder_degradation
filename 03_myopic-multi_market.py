@@ -53,8 +53,6 @@ if __name__ == "__main__":
         output_path=ri_qh_output_path,
         start_day=START,
         end_day=END,
-        #threshold=0,
-        #threshold_abs_min=0,
         discount_rate=0,
         bucket_size=BUCKET_SIZE,
         c_rate=C_RATE,

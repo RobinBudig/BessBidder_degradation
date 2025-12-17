@@ -110,7 +110,7 @@ def merge_idfull_into_csv(csv_in: str, csv_out: str = None) -> pd.DataFrame:
 
     if "id_full_h" in df.columns:
         df.drop(columns=["id_full_h"], inplace=True)
-        
+    #TODO: Benutzen das später für den Spread. Evt kann man da noch andere Spreads nehmen. Zum Beispiel den ID3 für das Produkt, weil das wird häufig als proxy für den Kauf/Verkauf auf dem ID genommen.  
     # Join
     merged = df.join(idfull, how="left")
     

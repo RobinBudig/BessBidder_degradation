@@ -19,7 +19,7 @@ load_dotenv()
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 if __name__ == "__main__":
-
+# TODO: Du hattest vorher die Bucket size in dem vWAp pre calculation neu gesetzt. man sollte hier keinen Möglichkeit haben die zu überschrieben sondern sich die aus dem precalculated file holen. Überlege mal ob du das alt meta da mit ablegen kannst. Ansonsten führt das nur zu komischen Fehlern. 
     simulate_period(
         START,
         END,

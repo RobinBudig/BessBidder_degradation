@@ -182,6 +182,7 @@ class BasicBatteryDAM(gym.Env):
             # check if we have capacity left in battery
             if self._current_soc > 0:
                 # penalty because missed profit
+                # TODO: Ahhhh, ja wie sieht deine penalty im Vergleich zum Reward denn jetzt aus? Macht ja Sinn das der sich anders verhält im Vergleich zu meinem Training. Deine peanlty ist jetzt ja viel kleiner. 
                 penalty = self._current_soc    # oder 2 * self._current_soc, etc.
                 reward = -penalty
         

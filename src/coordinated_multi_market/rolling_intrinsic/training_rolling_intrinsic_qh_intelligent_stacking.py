@@ -189,6 +189,8 @@ def build_battery_model(
     c_rate: float,
     roundtrip_eff: float,
 ) -> Tuple[gp.Model, Dict[str, Any], Dict[Any, gp.Constr], gp.Constr]:
+    # TODO: Hast du den refactoring schritt verifiziert? Ich ist ja wirklich nix wie es vorher war?
+    
     """
     Build a persistent Gurobi model for a single battery over a full delivery day.
 

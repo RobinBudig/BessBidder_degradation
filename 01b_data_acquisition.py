@@ -115,7 +115,7 @@ if not os.path.exists(output_path):
 csv_path = Path(output_path, f"data_{data_start}_{data_end}_hourly.csv")
 data_hourly.to_csv(csv_path)
 
-
+# TODO: Das brauchst du hier nciht korrekt?
 csv_path = Path(output_path, f"data_{data_start}_{data_end}_hourly.csv")
 
 
@@ -125,6 +125,7 @@ csv_path = Path(output_path, f"data_{data_start}_{data_end}_hourly.csv")
 # You can adjust bucket size and min trades as needed
 # Matrices are required for Rolling Intrinsic Algortihm
 
+#TODO: Hier nicht ordentlich die config benutzt und das macht keinen Sinn das als Funktion zu definieren. 
 precompute_range(
     start_day=DATA_START,
     end_day=DATA_END,

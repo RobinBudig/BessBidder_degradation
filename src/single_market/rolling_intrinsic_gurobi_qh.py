@@ -562,6 +562,7 @@ def simulate_period(
         logger.info(f"Trading end:   {trading_end}")
 
         # Battery time index (delivery quarter-hours)
+        # TODO: warum so kompliziert?
         start_of_day = trading_end - pd.Timedelta(hours=2)
         start_of_day = start_of_day.replace(hour=0, minute=0)
         end_of_day = start_of_day.replace(hour=23, minute=45)
@@ -584,7 +585,7 @@ def simulate_period(
         days_left = (end_day - current_day).days
         days_done = (current_day - start_day).days
 
-        # Simple heuristic for allowed cycles (same as legacy script)
+        # Simple heuristic for allowed cycles
         allowed_cycles = 1 + max(0, days_done - current_cycles)
 
         logger.info(f"Days left:      {days_left}")

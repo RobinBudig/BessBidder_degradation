@@ -147,6 +147,7 @@ if __name__ == "__main__":
             n_steps=512,
             clip_range=0.4,
             batch_size=128,
+            # TODO: wieso hast du das Gewicht von dem value loss kleiner gemacht?
             vf_coef=0.2,
             learning_rate=linear_schedule(0.003),
         )

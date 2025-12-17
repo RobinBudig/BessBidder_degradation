@@ -13,6 +13,7 @@ train_start = DATA_START.date().isoformat()
 train_end = DATA_END.date().isoformat()
 path = f"df_spot_train_{train_start}_{train_end}_with_features_utc.csv"
 
+# TODO: Finde ich nicht gut. Würde dir empfehlen auf das alte Sampling zu ändern.
 def split_df_by_date(
     df: pd.DataFrame,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:

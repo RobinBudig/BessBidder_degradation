@@ -190,6 +190,7 @@ def build_battery_model(
     c_rate: float,
     roundtrip_eff: float,
 ) -> Tuple[gp.Model, Dict[str, Any], Dict[Any, gp.Constr], gp.Constr]:
+    # TODO: gleiches hier hast du verifiziert, dass das Model vorher und nachher gleich funktioniert hat?
     """
     Build a persistent Gurobi model for a single battery over a full delivery day.
 
