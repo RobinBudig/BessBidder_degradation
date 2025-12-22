@@ -1,3 +1,4 @@
+
 import concurrent.futures
 import os
 
@@ -12,11 +13,18 @@ from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.ppo import PPO
 
 
+#from src.coordinated_multi_market.rolling_intrinsic.training_rolling_intrinsic_h_intelligent_stacking import (
+#    simulate_period_hourly_products,
+#)
+
+#from src.coordinated_multi_market.rolling_intrinsic.new_training_rolling_intrinsic_qh_intelligent_stacking import (
+#    simulate_days_stacked_quarterhourly_products,)
+
 from src.coordinated_multi_market.rolling_intrinsic.training_rolling_intrinsic_qh_intelligent_stacking import (
     simulate_days_stacked_quarterhourly_products,)
 
 
-from src.shared.config import BUCKET_SIZE, C_RATE, MAX_CYCLES_PER_DAY, MIN_TRADES, RTE
+from src.shared.config import BUCKET_SIZE, C_RATE, MAX_CYCLES_PER_DAY, MIN_TRADES, RTE, START_IDC_STEPS
 
 
 class CustomPPO(PPO):
@@ -27,6 +35,29 @@ class CustomPPO(PPO):
         self.lambda_val = 0.5
         self._last_ri_reward_per_euro = 0
         self.reward_log_path = reward_log_path
+    
+    # Curriculum function for max cycles
+    def _update_cycle_curriculum(self, env: VecEnv) -> None:
+        """
+        Setzt max_cycles im Env in Abhängigkeit von self.num_timesteps.
+        Wird aus collect_rollouts heraus aufgerufen.
+        """
+        steps = self.num_timesteps
+
+        if steps < 300_000:
+            max_cycles = 3.0
+        elif steps < 600_000:
+            max_cycles = 2.0
+        else:
+            max_cycles = 1.0
+
+        try:
+            env.env_method("set_max_cycles", max_cycles)
+        except AttributeError:
+            pass
+       
+        self.logger.record("curriculum/max_cycles", max_cycles)
+
 
     def collect_rollouts(
         self,
@@ -53,9 +84,9 @@ class CustomPPO(PPO):
         self.policy.set_training_mode(False)
         n_steps = 0
         rollout_buffer.reset()
-        timestamp_buffer = np.zeros(2048)
-        position_buffer = np.zeros(2048)
-        clearing_price_buffer = np.zeros(2048)
+        timestamp_buffer = np.zeros(n_rollout_steps)
+        position_buffer = np.zeros(n_rollout_steps)
+        clearing_price_buffer = np.zeros(n_rollout_steps)
         # TODO: Add revenue buffer for scaling the rewards
 
         # Sample new weights for the state dependent exploration
@@ -63,6 +94,8 @@ class CustomPPO(PPO):
             self.policy.reset_noise(env.num_envs)
 
         callback.on_rollout_start()
+
+        self._update_cycle_curriculum(env)
 
         while n_steps < n_rollout_steps:
             if (
@@ -139,6 +172,8 @@ class CustomPPO(PPO):
                 timestamp_buffer[n_steps - 1] = infos[0]["timestamp"]
                 position_buffer[n_steps - 1] = infos[0]["position"]
                 clearing_price_buffer[n_steps - 1] = infos[0]["clearing_price"]
+                scaling_max_price = infos[0]["scaling_max_price"]
+                scaling_min_price = infos[0]["scaling_min_price"]
 
         with th.no_grad():
             # Compute value for the last timestep
@@ -147,6 +182,16 @@ class CustomPPO(PPO):
         complete_periods = self._derive_period_lenghts_from_episode_starts_array(
             rollout_buffer.episode_starts.flatten()
         )
+
+        # Tensorbaord logging collect episodic values
+        ep_metrics = {
+            "reward_components/combined_ep_reward": [],
+            "reward_components/combined_ep_profit": [],
+            "reward_components/day_ahead_ep_reward": [],
+            "reward_components/day_ahead_ep_profit": [],
+            "reward_components/intraday_ep_reward": [],
+            "reward_components/intraday_ep_profit": [],
+        }
 
         for row_start, num_rows in complete_periods.items():
             if num_rows <= 0:
@@ -157,7 +202,7 @@ class CustomPPO(PPO):
             ).tz_convert("Europe/Berlin")
             period_volumes = position_buffer[row_start : row_start + num_rows]
 
-            # Wenn du nur "aktive" Tage betrachten willst:
+            # Skip incomplete cycles
             if not self._check_if_complete_cycle(period_volumes):
                 continue
 
@@ -165,11 +210,10 @@ class CustomPPO(PPO):
                 row_start : row_start + num_rows
             ]
 
-            # --- DA-Teil: immer vorhanden ---
+            # DA-Rewards
             da_rewards = rollout_buffer.rewards[row_start : row_start + num_rows].flatten()
 
-            # TODO: Wenn du es immer berechnest warum ist es dann optional?
-            # optional: DA-Profit immer berechnen (ist billig)
+            # Derive DA-Trades from the RL-Agent's actions
             da_trades = self._derive_day_ahead_trades(
                 timestamps=period_timestamps,
                 volumes=period_volumes,
@@ -184,15 +228,15 @@ class CustomPPO(PPO):
             # Default-Values for IDC (before 200k or if no simulation)
             ri_stacked_profit = 0.0
             ri_reward_per_scaled = 0.0
+            ri_reward_scaled = 0.0
             rolling_intrinsic_rewards = np.zeros(num_rows, dtype=float)
 
-            # IDC starting at 200k Steps
-            # TODO: Das auch aus config übernehmen
-            if self.num_timesteps >= 200_000:
+            # IDC starting at 1 Mio. Steps
+            if self.num_timesteps >= START_IDC_STEPS:
                 if self.intraday_product_type == "H":
                     (
                         rolling_intrinsic_results_stacked,
-                        _,
+                        rolling_intrinsic_results_non_stacked,
                     ) = self.run_simulations_hourly_products_in_parallel(
                         period_timestamps, da_trades
                     )
@@ -207,19 +251,33 @@ class CustomPPO(PPO):
                         f"Unsupported intraday product type {self.intraday_product_type}. Only QH or H supported"
                     )
 
-                # If no trades / no profit
                 if len(rolling_intrinsic_results_stacked) > 0:
+
                     ri_stacked_profit = rolling_intrinsic_results_stacked["total_profit"].sum()
-                    ri_reward_per_scaled = ri_stacked_profit / 85 / num_rows
-                    rolling_intrinsic_rewards = np.repeat(
-                        ri_reward_per_scaled, num_rows
-                    )
+                    
+                    REWARD_SCALE = 100.0
+                    ri_reward_scaled = ri_stacked_profit / REWARD_SCALE
+
+
+                    rolling_intrinsic_rewards = np.zeros(num_rows, dtype=float)
+                    rolling_intrinsic_rewards[-1] = ri_reward_scaled
+
+                else:
+                    ri_stacked_profit = 0.0
+                    rolling_intrinsic_rewards = np.zeros(num_rows, dtype=float)
+                    ri_reward_scaled = 0.0
+
+
+                    
+                    # ri_reward_per_scaled = ri_stacked_profit / 85 / num_rows
+                    # rolling_intrinsic_rewards = np.repeat(ri_reward_per_scaled, num_rows)
 
                 # From here: combined_reward is actually used for PPO
+                
                 combined_rewards = (
                     self.lambda_val * da_rewards
-                    + (1 - self.lambda_val) * rolling_intrinsic_rewards
-                )
+                    + (1 - self.lambda_val) * rolling_intrinsic_rewards)
+                
 
                 rollout_buffer.rewards[row_start : row_start + num_rows] = (
                     combined_rewards.reshape(-1, 1)
@@ -230,7 +288,7 @@ class CustomPPO(PPO):
                 # (Training remains DA-only because we do NOT overwrite the buffer)
                 combined_rewards = da_rewards.copy()
 
-            # ==== CSV-Logging (always, from Step 0) ====
+            # CSV-Logging (always, from Step 0)
             if self.reward_log_path is not None:
                 log_row = pd.DataFrame(
                     {
@@ -243,7 +301,7 @@ class CustomPPO(PPO):
                         "idc_reward_sum": [rolling_intrinsic_rewards.sum()],
                         "combined_reward_sum": [combined_rewards.sum()],
                         "da_reward_mean": [da_rewards.mean()],
-                        "idc_reward_step": [ri_reward_per_scaled],
+                        "idc_reward_step": [ri_reward_scaled],
                         "combined_reward_mean": [combined_rewards.mean()],
                     }
                 )
@@ -256,22 +314,23 @@ class CustomPPO(PPO):
                     index=False,
                 )
 
-            # ==== TensorBoard-Logging ====
-            self.logger.record("reward_components/da_profit_eur", da_profit)
-            self.logger.record("reward_components/idc_profit_eur", ri_stacked_profit)
-            self.logger.record("reward_components/da_reward_mean", da_rewards.mean())
-            self.logger.record("reward_components/idc_reward_step", ri_reward_per_scaled)
-            self.logger.record(
-                "reward_components/combined_reward_mean", combined_rewards.mean()
-            )
+            # TensorBoard-Logging
+            combined_ep_reward = float(np.sum(combined_rewards))
+            combined_ep_profit = float(da_profit + ri_stacked_profit)
 
-            # Optional extra: episodic returns for better comparison
-            self.logger.record(
-                "reward_components/env_ep_return", da_rewards.sum()
-            )
-            self.logger.record(
-                "reward_components/combined_ep_return", combined_rewards.sum()
-            )
+            day_ahead_ep_reward = float(np.sum(da_rewards))
+            day_ahead_ep_profit = float(da_profit)
+
+            intraday_ep_reward = float(np.sum(rolling_intrinsic_rewards))
+            intraday_ep_profit = float(ri_stacked_profit)
+
+            ep_metrics["reward_components/combined_ep_reward"].append(combined_ep_reward)
+            ep_metrics["reward_components/combined_ep_profit"].append(combined_ep_profit)
+            ep_metrics["reward_components/day_ahead_ep_reward"].append(day_ahead_ep_reward)
+            ep_metrics["reward_components/day_ahead_ep_profit"].append(day_ahead_ep_profit)
+            ep_metrics["reward_components/intraday_ep_reward"].append(intraday_ep_reward)
+            ep_metrics["reward_components/intraday_ep_profit"].append(intraday_ep_profit)
+
 
             # Step-Logging (per time step within the episode)
             if self.reward_log_path is not None:
@@ -296,15 +355,14 @@ class CustomPPO(PPO):
                     index=False,
                 )
 
+        # TensorBoard: Calcuate mean of all episodes in rollout
+        n_logged_eps = len(ep_metrics["reward_components/combined_ep_reward"])
+        if n_logged_eps > 0:
+            for k, vals in ep_metrics.items():
+                self.logger.record(k, float(np.mean(vals)))
 
-                # ---------------------------------------------------------------------
+            self.logger.record("reward_components/episodes_in_rollout", n_logged_eps)
 
-                rollout_buffer.rewards[row_start : row_start + num_rows] = (
-                    combined_rewards.reshape(-1, 1)
-                )
-
-                
-                
 
         rollout_buffer.compute_returns_and_advantage(last_values=values, dones=dones)
 
@@ -320,15 +378,19 @@ class CustomPPO(PPO):
     ):
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future_stacked = executor.submit(
+                #simulate_period_quarterhourly_products,
                 simulate_days_stacked_quarterhourly_products,
                 start_day=period_timestamps[0],
                 end_day=period_timestamps[0] + pd.Timedelta(days=1),
+                #threshold=0,
+                # threshold_abs_min=0,
                 discount_rate=0,
                 bucket_size=BUCKET_SIZE,
                 c_rate=C_RATE,
                 roundtrip_eff=RTE,
                 max_cycles=MAX_CYCLES_PER_DAY,
                 min_trades=MIN_TRADES,
+                #day_ahead_trades_drl=da_trades,
                 drl_output=da_trades
             )
 
@@ -408,13 +470,15 @@ class CustomPPO(PPO):
 
     @staticmethod
     def _check_if_complete_cycle(period_volumes, capacity: float = 1.0,
-                             min_cycle_fraction: float = 1.0):
+                             min_cycle_fraction: float = 0.0):
         traded_volume = abs(period_volumes).sum()
         cycle_fraction = traded_volume / (2 * capacity)
-        
-        # TODO: Wieso hier größer gleich? IN welchem Case erlaubst du mehr als 1 Cycle?
         return cycle_fraction >= min_cycle_fraction
- 
+    
+    #def _check_if_complete_cycle(period_volumes):
+    #    traded_volume = abs(period_volumes).sum()
+    #    return traded_volume / (2 * 1) == 1
+    
 
 
     @staticmethod
@@ -460,6 +524,7 @@ class CustomPPO(PPO):
                                 "side": side,
                                 "quantity": net_volume,
                                 "price": price,
+                                #"product": timestamps[idx],
                                 "product": product_index,
                                 "profit": profit / 4,
                             }
