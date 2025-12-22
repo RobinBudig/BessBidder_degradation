@@ -13,6 +13,11 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv()
 
+#warnings.filterwarnings("ignore", category=UserWarning)
+#warnings.filterwarnings("ignore", category=FutureWarning)
+
+
+
 # --- Database configuration -------------------------------------------------
 
 PASSWORD = os.getenv("SQL_PASSWORD")
@@ -66,6 +71,12 @@ def precompute_vwaps_for_day(
     output_path : str | Path
         Directory where Parquet files (vwaps_YYYY-MM-DD.parquet) will be stored.
     """
+
+    current_day = (
+        pd.Timestamp(current_day)
+        .tz_convert("Europe/Berlin")
+        .normalize()
+    )
     output_path = Path(output_path)
 
     trading_start = current_day - pd.Timedelta(hours=8)
@@ -87,6 +98,7 @@ def precompute_vwaps_for_day(
           AND executiontime <  '{trading_end:%Y-%m-%d %H:%M:%S}'
           AND side = 'BUY';
     """
+    # Note: for production use, prefer parameterized queries instead of f-strings.
 
     with psycopg2.connect(CONNECTION) as conn, conn.cursor() as cursor:
         cursor.execute(query)
@@ -99,7 +111,7 @@ def precompute_vwaps_for_day(
         logger.warning(" → No trades found for this day, skipping.")
         return
 
-    # TODO: Hast du hier verifziert ob das wie gewünscht funktioniert sieht ganz schön wild aus das UTC handling... 
+    
     # Normalize timezones to Europe/Berlin
     df["executiontime"] = pd.to_datetime(df["executiontime"], utc=True).dt.tz_convert(
         "Europe/Berlin"
@@ -108,37 +120,53 @@ def precompute_vwaps_for_day(
         "Europe/Berlin"
     )
 
+
     # 2. Determine bucket index (execution_time_end)
     # -------------------------------------------------------------------------
     # Use UTC for flooring, then convert back to Europe/Berlin to be DST-safe
+    
+    
     et_utc = df["executiontime"].dt.tz_convert("UTC")
+    df["bucket_end"] = (et_utc.dt.floor(f"{bucket_size}min") + pd.Timedelta(minutes=bucket_size)).dt.tz_convert("Europe/Berlin")
+    
+    df["bucket_start"] = (
+        df["executiontime"].dt.tz_convert("UTC")
+        .dt.floor(f"{bucket_size}min")
+        .dt.tz_convert("Europe/Berlin")
+        )
 
-    df["bucket_end"] = et_utc.dt.floor(f"{bucket_size}min") + pd.Timedelta(
-        minutes=bucket_size
-    )
-    df["bucket_end"] = df["bucket_end"].dt.tz_convert("Europe/Berlin")
-
-    # All possible bucket ends in the trading window
     bucket_index = pd.date_range(
-        trading_start + pd.Timedelta(minutes=bucket_size),
-        trading_end,
-        freq=f"{bucket_size}min",
-    )
+        start=trading_start,
+        end=trading_end - pd.Timedelta(minutes=bucket_size),
+        freq=f"{bucket_size}min"
+        )
+
+
 
     # All quarter-hourly products for this delivery day
-    # TODO: Warum ist das so umständlich definiert? start und end of day sind doch eh fixe Werte? 
+    """
     start_of_day = (trading_end - pd.Timedelta(hours=2)).replace(hour=0, minute=0)
     end_of_day = start_of_day.replace(hour=23, minute=45)
     product_index = pd.date_range(start_of_day, end_of_day, freq="15min")
+    """
+
+    #new
+    day_start = current_day.normalize()  # 00:00 Europe/Berlin
+    product_index = pd.date_range(
+        start=day_start,
+        end=day_start + pd.Timedelta(days=1),
+        freq="15min",
+        inclusive="left",
+    )
+
 
     # 3. Aggregate VWAPs
     # -------------------------------------------------------------------------
-    # Precompute volume_weighted_price (price * volume) for clarity
-    
-    df["volume_weighted_price"] = df["price"] * df["volume"]
+    # Precompute trade value (price * volume) for clarity
+    df["trade_value"] = df["price"] * df["volume"]
 
     grouped = df.groupby(["bucket_end", "deliverystart"]).agg(
-        total_value=("volume_weighted_price", "sum"),
+        total_value=("trade_value", "sum"),
         total_volume=("volume", "sum"),
         total_trades=("trade_count", "sum"),
     )
@@ -259,11 +287,10 @@ def precompute_range(
 
 
 if __name__ == "__main__":
-    
-    # Run python precompute_vwaps.py only
-    
-    from src.shared.config import DATA_START, DATA_END, PRECOMPUTED_VWAP_PATH, BUCKET_SIZE, MIN_TRADES
-
+    from src.shared.config import (
+        DATA_START, DATA_END, PRECOMPUTED_VWAP_PATH,
+        BUCKET_SIZE, MIN_TRADES
+    )
 
     precompute_range(
         start_day=DATA_START,
