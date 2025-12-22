@@ -45,7 +45,7 @@ def rebuild_idfull_table():
     """(Re)creates public.id_full_h_from_qh from public.transactions_intraday_de."""
     eng = _engine_from_env()
     with eng.begin() as con:
-        # Run each statement separately to keep SQLAlchemy happy
+        # Run each statement separately
         for stmt in SQL_RECREATE_IDFULL_H_FROM_QH.strip().split(";\n"):
             s = stmt.strip()
             if s:
@@ -62,7 +62,7 @@ def load_idfull(only_start=None, only_end=None) -> pd.DataFrame:
     if only_start is not None:
         where.append("hour_start_utc >= :start")
         ts = pd.Timestamp(only_start)
-        # our hour_start_utc is stored as UTC-naive → wir geben naive UTC strings an Postgres
+    
         if ts.tz is not None:
             ts = ts.tz_convert("UTC").tz_localize(None)
         params["start"] = ts
@@ -78,7 +78,7 @@ def load_idfull(only_start=None, only_end=None) -> pd.DataFrame:
 
     df = pd.read_sql(text(q), eng, params=params, parse_dates=["hour_start_utc"]).set_index("hour_start_utc")
 
-    # Jetzt wissen wir: diese Zeiten sind UTC → einfach lokalizen:
+    # Make sure index is tz-aware UTC
     if df.index.tz is None:
         df.index = df.index.tz_localize("UTC")
     else:
@@ -110,7 +110,7 @@ def merge_idfull_into_csv(csv_in: str, csv_out: str = None) -> pd.DataFrame:
 
     if "id_full_h" in df.columns:
         df.drop(columns=["id_full_h"], inplace=True)
-    #TODO: Benutzen das später für den Spread. Evt kann man da noch andere Spreads nehmen. Zum Beispiel den ID3 für das Produkt, weil das wird häufig als proxy für den Kauf/Verkauf auf dem ID genommen.  
+        
     # Join
     merged = df.join(idfull, how="left")
     
@@ -144,4 +144,3 @@ def _cli():
 
 if __name__ == "__main__":
     _cli()
-
