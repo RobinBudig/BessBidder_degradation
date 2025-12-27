@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 from src.single_market.day_ahead_market_optimizer import DayAheadMarketOptimizationModel
 from src.shared.config import (
     C_RATE,
-    MAX_CYCLES_PER_DAY,
+    MAX_CYCLES_LIFETIME,
     RTE,
     START,
     END,
@@ -36,11 +36,12 @@ OUTPUT_DIR = OUTPUT_DIR_DA
 FILENAME = FILENAME_DA
 
 # Battery parameters
+cost_of_use = 0 # in EUR/FEC
 BATTERY_CAPACITY = 1  # in MWh
-CHARGE_RATE = C_RATE  # in MW
-DISCHARGE_RATE = C_RATE  # in MW
+CHARGE_RATE = C_RATE * BATTERY_CAPACITY  # in MW
+DISCHARGE_RATE = C_RATE * BATTERY_CAPACITY  # in MW
 EFFICIENCY = RTE**0.5
-MAX_CYCLES = MAX_CYCLES_PER_DAY
+MAX_CYCLES = MAX_CYCLES_LIFETIME
 START_END_SOC = 0.0
 
 
@@ -80,6 +81,9 @@ def main():
     data = load_data()
 
     results = []
+
+    remaining_cycles = float(MAX_CYCLES)
+
     for day in days:
         model = DayAheadMarketOptimizationModel(
             time_index=data["da_prices"].loc[day].index,
@@ -89,11 +93,26 @@ def main():
             charge_rate=CHARGE_RATE,
             discharge_rate=DISCHARGE_RATE,
             efficiency=EFFICIENCY,
-            max_cycles=MAX_CYCLES,
+            max_cycles=max(0.0, remaining_cycles),
             start_end_soc=START_END_SOC,
+            cost_of_use=cost_of_use,
         )
         temp_results = model.solve()
+
+        # --- update remaining lifetime budget ---
+        if ("volume_charge" in temp_results.columns) and ("volume_discharge" in temp_results.columns):
+            used_throughput = float(temp_results["volume_charge"].sum() + temp_results["volume_discharge"].sum())
+            used_cycles = used_throughput / (2 * BATTERY_CAPACITY)
+            remaining_cycles -= used_cycles
+        else:
+            print("WARNING: volume_charge/volume_discharge not found for budget update. Columns:", list(temp_results.columns))
+
         results.append(temp_results)
+
+        # early stop if lifetime budget is depleted
+        if remaining_cycles <= 1e-9:
+            break
+    print(f"remaining lifetime cycles after simulation: {remaining_cycles:.4f}")
 
     final_df = pd.concat(results).sort_index()
 

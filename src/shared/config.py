@@ -9,6 +9,7 @@ C_RATE = 1
 RTE = 0.86
 MAX_CYCLES_PER_YEAR = 365
 MAX_CYCLES_PER_DAY = 1
+MAX_CYCLES_LIFETIME = 66
 
 
 # Rolling Intrinsic specific
