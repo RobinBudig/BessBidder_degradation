@@ -61,18 +61,13 @@ fill_database_with_entsoe_data(start, end)
 #  GET DATA AND STORE IN CSV
 
 # Initialize database connection to fetch auction prices and forecasts
-thesis_db_hook = ThesisDBHook(username=POSTGRES_USERNAME, hostname=POSTGRES_DB_HOST)
+thesis_db_hook = ThesisDBHook(username=POSTGRES_USERNAME, hostname=POSTGRES_DB_HOST, port=os.getenv("POSTGRES_PORT"), password=os.getenv("POSTGRES_PASSWORD"))
 
 # Fetch auction prices for EXAA and EPEX Spot markets
 exaa_auction_prices = thesis_db_hook.get_auction_prices(
     start=start, end=end, id="exaa_15min_de_lu_eur_per_mwh"
 )
-"""
-# Fetch auction prices for EPEX Spot (15 min resolution)
-epex_spot_15min_prices = thesis_db_hook.get_auction_prices(
-    start=start, end=end, id="epex_spot_15min_de_lu_eur_per_mwh"
-)
-"""
+
 # Fetch auction prices for EPEX Spot (60 min resolution)
 da_auction_prices_60 = thesis_db_hook.get_auction_prices(
     start=start, end=end, id="epex_spot_60min_de_lu_eur_per_mwh"
@@ -115,17 +110,12 @@ if not os.path.exists(output_path):
 csv_path = Path(output_path, f"data_{data_start}_{data_end}_hourly.csv")
 data_hourly.to_csv(csv_path)
 
-# TODO: Das brauchst du hier nciht korrekt?
-csv_path = Path(output_path, f"data_{data_start}_{data_end}_hourly.csv")
-
-
 
 # Run precompute VWAPs which computes VWAPS matrices and saves them as parquet files
 # VWAPs are stored in PRECOMPUTED_VWAP_PATH defined in shared/config.py
 # You can adjust bucket size and min trades as needed
 # Matrices are required for Rolling Intrinsic Algortihm
 
-#TODO: Hier nicht ordentlich die config benutzt und das macht keinen Sinn das als Funktion zu definieren. 
 precompute_range(
     start_day=DATA_START,
     end_day=DATA_END,

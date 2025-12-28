@@ -42,7 +42,51 @@ pip install -r requirements.txt
 
 ## Database Configuration
 
-To prepare a local PostgreSQL instance:
+### PostgreSQL Installation (Required)
+
+PostgreSQL must be installed and running for example locall as a Windows service. 
+
+**Windows Installation:**
+1. Download the EDB PostgreSQL installer from [postgresql.org/download/windows](https://www.postgresql.org/download/windows/)
+2. Run the installer and follow these settings:
+   - Set a password for the `postgres` superuser (e.g., `postgres`)
+   - **Enable "Install as a service"** (important!)
+   - Use default port `5432`
+   - Finish the installer
+3. Verify the service is running:
+   ```powershell
+   Get-Service | Where-Object {$_.Name -like 'postgresql*'} | Format-Table Name, Status
+   ```
+
+### Configure Local Authentication
+
+To enable password-free local development connections, edit `pg_hba.conf`:
+
+1. Open the file (adjust the version number if needed):
+   ```powershell
+   notepad "C:\Program Files\PostgreSQL\16\data\pg_hba.conf"
+   ```
+2. Find the IPv4 and IPv6 local connection lines and change the authentication method from `scram-sha-256` (or `md5`) to `trust`:
+   ```
+   # IPv4 local connections:
+   host    all             all             127.0.0.1/32            trust
+   # IPv6 local connections:
+   host    all             all             ::1/128                 trust
+   ```
+3. Save and restart the PostgreSQL service:
+   ```powershell
+   Restart-Service -Name postgresql-x64-16
+   ```
+
+### Create Database User and Database
+
+To prepare a local PostgreSQL instance run the following commands with your chosen <username>:
+
+```powershell
+psql -U postgres -h 127.0.0.1
+```
+
+Then in the psql prompt:
 
 ```sql
 CREATE USER <username>;
@@ -51,7 +95,7 @@ GRANT ALL PRIVILEGES ON DATABASE epex_data TO <username>;
 ALTER DATABASE epex_data OWNER TO <username>;
 ```
 
-Edit `pg_hba.conf` to set authentication method to `trust` for local development.
+Exit psql with `\q`.
 
 ### Create `.env` file for credentials:
 

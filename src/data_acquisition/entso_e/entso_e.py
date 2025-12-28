@@ -17,6 +17,8 @@ import requests
 load_dotenv()
 POSTGRES_USERNAME = os.getenv("POSTGRES_USER")
 POSTGRES_DB_HOST = os.getenv("POSTGRES_DB_HOST")
+POSTGRES_PORT = os.getenv("POSTGRES_PORT")
+POSTGRES_PASSWORD = os.getenv("SQL_PASSWORD") or os.getenv("POSTGRES_PASSWORD")
 
 COUNTRY_CODE = "DE_LU"
 
@@ -35,7 +37,12 @@ def fill_database_with_entsoe_data(start: pd.Timestamp, end: pd.Timestamp) -> No
     """
 
     entsoe_hook = EntsoeHook(api_key=os.getenv("ENTSOE_API_KEY"))
-    thesis_db_hook = ThesisDBHook(username=POSTGRES_USERNAME, hostname=POSTGRES_DB_HOST)
+    thesis_db_hook = ThesisDBHook(
+        username=POSTGRES_USERNAME,
+        hostname=POSTGRES_DB_HOST,
+        port=POSTGRES_PORT,
+        password=POSTGRES_PASSWORD,
+    )
 
     # ------------------------------------------------------------
     # ALTER CODE (monatlich) – behalten, aber auskommentieren
