@@ -216,7 +216,7 @@ class BasicBatteryDAM(gym.Env):
             reward -= invalid_penalty_coef * overflow
 
         game_over = round(self._remaining_cycles, 4) <= 0.0
-        terminated = bool(timestep_in_day == PERIOD_LENGTH - 1 ) #or game_over)
+        terminated = bool(timestep_in_day == PERIOD_LENGTH - 1 ) or game_over
 
         if terminated and self._current_soc > 1e-3:
             soc_penalty_coef = 0.05
@@ -247,7 +247,7 @@ class BasicBatteryDAM(gym.Env):
             forecast_price_current=self._forecasted_price_vector[timestep_in_day],
         )
 
-        # reward logging # reward logging
+        # reward logging 
         self.log_data(
             modus=self._modus,
             timestamp=timestamp,
@@ -503,7 +503,6 @@ class BasicBatteryDAM(gym.Env):
         else:
             raise ValueError("Unknown mode {}", modus)
 
-        # TODO: log episode
         # write to dataframe
         log_df = pd.DataFrame(
             columns=[
