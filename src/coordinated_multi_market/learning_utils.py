@@ -6,16 +6,31 @@ import os
 from sklearn.preprocessing import MinMaxScaler
 from typing import Tuple
 
-from src.shared.config import DATA_START, DATA_END, TRAIN_START, TRAIN_END, VAL_START, VAL_END, TEST_START, TEST_END, DATA_PATH, PROBLEMATIC_DATES
+from src.shared.config import DATA_START, DATA_END, DATA_PATH, PROBLEMATIC_DATES, VAL_FRACTION, TEST_FRACTION
 
 
 train_start = DATA_START.date().isoformat()
 train_end = DATA_END.date().isoformat()
 path = f"df_spot_train_{train_start}_{train_end}_with_features_utc.csv"
 
-def split_df_by_date(
+def split_df_by_random(
     df: pd.DataFrame,
+    val_fraction: float = VAL_FRACTION,
+    test_fraction: float = TEST_FRACTION,
+    random_state: int = 42,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Randomly splits DataFrame into train, val, and test sets based on fractions.
+    
+    Args:
+        df: Input DataFrame
+        val_fraction: Fraction of data for validation set
+        test_fraction: Fraction of data for test set
+        random_state: Random seed for reproducibility
+        
+    Returns:
+        Tuple of (df_train, df_val, df_test)
+    """
    
     if not isinstance(df.index, pd.DatetimeIndex):
         raise ValueError("DataFrame-Index muss ein DatetimeIndex sein.")
@@ -25,29 +40,44 @@ def split_df_by_date(
     else:
         df.index = df.index.tz_convert("Europe/Berlin")
 
-    train_mask = (df.index >= TRAIN_START) & (df.index < TRAIN_END)
-    val_mask   = (df.index >= VAL_START)   & (df.index < VAL_END)
-    test_mask  = (df.index >= TEST_START)  & (df.index < TEST_END)
-
-    df_train = df[train_mask].copy()
-    df_val   = df[val_mask].copy()
-    df_test  = df[test_mask].copy()
+    # Generate random indices for splitting
+    n_samples = len(df)
+    indices = np.arange(n_samples)
+    np.random.seed(random_state)
+    np.random.shuffle(indices)
+    
+    # Calculate split points
+    n_test = int(np.ceil(n_samples * test_fraction))
+    n_val = int(np.ceil(n_samples * val_fraction))
+    n_train = n_samples - n_test - n_val
+    
+    # Split indices
+    test_indices = indices[:n_test]
+    val_indices = indices[n_test:n_test + n_val]
+    train_indices = indices[n_test + n_val:]
+    
+    df_test = df.iloc[test_indices].copy()
+    df_val = df.iloc[val_indices].copy()
+    df_train = df.iloc[train_indices].copy()
 
     return df_train, df_val, df_test
 
 
 
-def load_input_data(write_test: bool = False):
+def load_input_data(write_test: bool = False, random_state: int = 42):
     """
-    Lädt den vollständigen Spot-Datensatz und splittet ihn deterministisch
-    in Train-, Val- und Test-Sets nach den Zeiträumen in config.py.
+    Lädt den vollständigen Spot-Datensatz und splittet ihn zufällig
+    in Train-, Val- und Test-Sets basierend auf den Fractions in config.py.
 
+    Args:
+        write_test: Optional flag to write test data to CSV
+        random_state: Random seed for reproducibility
+        
     Rückgabe:
         df_spot_train, df_spot_val, df_spot_test
     """
 
     # Load dataset
-    #df = pd.read_csv(SPOT_DATA_CSV_PATH, index_col="time", parse_dates=True)
     df = pd.read_csv(
         os.path.join(
             DATA_PATH,
@@ -61,17 +91,16 @@ def load_input_data(write_test: bool = False):
         mask_bad = df.index.date.astype("O")
         df = df[~pd.Series(mask_bad, index=df.index).isin(PROBLEMATIC_DATES)]
 
-
-    # Apply time periods
-    df_spot_train, df_spot_val, df_spot_test = split_df_by_date(df)
+    # Apply random split
+    df_spot_train, df_spot_val, df_spot_test = split_df_by_random(df, random_state=random_state)
 
     # Optional: Write test data to CSV (e.g., for further analysis)
     if write_test:
         df_spot_test.to_csv("spot_test_period.csv")
     
-    print("Training start:", df_spot_train.index.min(), "Training end:", df_spot_train.index.max())
-    print("Validation start:", df_spot_val.index.min(), "Validation end:", df_spot_val.index.max())
-    print("Test start:", df_spot_test.index.min(), "Test end:", df_spot_test.index.max())
+    print("Training samples:", len(df_spot_train), "Date range:", df_spot_train.index.min(), "to", df_spot_train.index.max())
+    print("Validation samples:", len(df_spot_val), "Date range:", df_spot_val.index.min(), "to", df_spot_val.index.max())
+    print("Test samples:", len(df_spot_test), "Date range:", df_spot_test.index.min(), "to", df_spot_test.index.max())
 
     return df_spot_train, df_spot_val, df_spot_test
 

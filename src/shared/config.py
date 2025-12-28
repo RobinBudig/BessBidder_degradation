@@ -17,23 +17,17 @@ MIN_TRADES = 10
 
 # Data timeframe configuration (importnant for naming csv files, etc.)
 DATA_START = pd.Timestamp(year=2019, month=1, day=1, tz="Europe/Berlin")
-DATA_END   = pd.Timestamp(year=2024, month=1, day=1, tz="Europe/Berlin")  # exklusive Obergrenze
+DATA_END   = pd.Timestamp(year=2019, month=2, day=1, tz="Europe/Berlin")  # exklusive Obergrenze
 
-# Train data timeframe
-TRAIN_START = pd.Timestamp(year=2019, month=1, day=1, tz="Europe/Berlin")
-TRAIN_END   = pd.Timestamp(year=2023, month=9, day=30, tz="Europe/Berlin") + pd.Timedelta(days=1)
 
 # Validation timeframe
-VAL_START = pd.Timestamp(year=2023, month=10, day=1, tz="Europe/Berlin")
-VAL_END   = pd.Timestamp(year=2023, month=12, day=31, tz="Europe/Berlin") + pd.Timedelta(days=1)
-
+VAL_FRACTION = 0.1
 # Test timeframe
-TEST_START = pd.Timestamp(year=2023, month=10, day=1, tz="Europe/Berlin")
-TEST_END   = pd.Timestamp(year=2023, month=12, day=31, tz="Europe/Berlin") + pd.Timedelta(days=1)
+TEST_FRACTION = 0.1
 
 # For single market day ahead optimizer, rolling intrinsic and myopic market
-START = TEST_START
-END   = TEST_END
+START = DATA_START
+END   = DATA_END
 
 # Problematic dates that need to be removed from the data for the rolling intrinsic algorithm to work
 PROBLEMATIC_DATES = [
@@ -49,7 +43,10 @@ PROBLEMATIC_DATES = [
 # 02 SINGLE MARKET CONFIGURATION
 
 OUTPUT_DIR_DA = os.path.join("output", "myopic_multi_market", "day_ahead_milp")
-FILENAME_DA = "11-12.2020_ACM.csv"
+# dynamically define filename based on start and end date
+FILENAME_DA = "day_ahead_milp_results_{}_to_{}.csv".format(
+    START.strftime("%Y-%m-%d"), END.strftime("%Y-%m-%d")
+)
 DATA_PATH_DA = Path("data", "data_2019-01-01_2024-01-01_hourly.csv")
 
 
