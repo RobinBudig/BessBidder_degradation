@@ -16,11 +16,12 @@ Requires:
 import os
 import pandas as pd
 from dotenv import load_dotenv
+import pyomo.environ as pyo
 
 from src.single_market.day_ahead_market_optimizer import DayAheadMarketOptimizationModel
 from src.shared.config import (
     C_RATE,
-    MAX_CYCLES_PER_DAY,
+    MAX_CYCLES_LIFETIME,
     RTE,
     START,
     END,
@@ -36,11 +37,12 @@ OUTPUT_DIR = OUTPUT_DIR_DA
 FILENAME = FILENAME_DA
 
 # Battery parameters
+cost_of_use = 10 # in EUR/FEC
 BATTERY_CAPACITY = 1  # in MWh
-CHARGE_RATE = C_RATE  # in MW
-DISCHARGE_RATE = C_RATE  # in MW
+CHARGE_RATE = C_RATE * BATTERY_CAPACITY  # in MW
+DISCHARGE_RATE = C_RATE * BATTERY_CAPACITY  # in MW
 EFFICIENCY = RTE**0.5
-MAX_CYCLES = MAX_CYCLES_PER_DAY
+MAX_CYCLES = MAX_CYCLES_LIFETIME
 START_END_SOC = 0.0
 
 
@@ -83,6 +85,8 @@ def main():
     data = load_data()
 
     results = []
+    cycles_used = 0
+
     for day in days:
         model = DayAheadMarketOptimizationModel(
             time_index=data["da_prices"].loc[day].index,
@@ -94,8 +98,11 @@ def main():
             efficiency=EFFICIENCY,
             max_cycles=MAX_CYCLES,
             start_end_soc=START_END_SOC,
+            cost_of_use=cost_of_use,
+            cycles_used_init=cycles_used,
         )
         temp_results = model.solve()
+        cycles_used += pyo.value(model.model.delta_cycles)
         results.append(temp_results)
 
     final_df = pd.concat(results).sort_index()

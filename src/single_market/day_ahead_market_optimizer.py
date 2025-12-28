@@ -17,6 +17,8 @@ class DayAheadMarketOptimizationModel:
         efficiency,
         max_cycles,
         start_end_soc,
+        cost_of_use,
+        cycles_used_init,
     ):
         self.time_index = time_index
         self.da_prices_forecast = da_prices_forecast
@@ -28,6 +30,9 @@ class DayAheadMarketOptimizationModel:
         self.max_cycles = max_cycles
         self.start_end_soc = start_end_soc
         self.time_periods = len(da_prices_forecast)
+        self.cost_of_use = cost_of_use
+        self.dt = 1.0  # 1h periods;
+        self.cycles_used_init = cycles_used_init
 
         # Create the model
         self.model = pyo.ConcreteModel()
@@ -61,6 +66,12 @@ class DayAheadMarketOptimizationModel:
         self.model.discharge = pyo.Var(
             self.model.T, bounds=(0, self.discharge_rate)
         )  # Discharging power
+
+
+        # counting the number of cycles
+        self.model.delta_cycles = pyo.Var(
+            domain=pyo.NonNegativeReals
+        )
 
         # Binary variables for prohibiting simultaneous charge and discharge
         self.model.buy_indicator = pyo.Var(self.model.T, domain=pyo.Binary)
@@ -97,9 +108,15 @@ class DayAheadMarketOptimizationModel:
         self.model.max_charge_power_constraint = pyo.Constraint(
             self.model.T, rule=self.max_charge_power_constraint
         )
-        self.model.max_cycles_constraint = pyo.Constraint(
-            rule=self.max_cycles_constraint
+
+        self.model.delta_cycles_def = pyo.Constraint(
+            rule=self.delta_cycles_def
         )
+
+        self.model.lifetime_cycles_limit = pyo.Constraint(
+            rule=self.lifetime_cycles_limit
+        )
+
 
         self.model.prevent_overcommitment = pyo.Constraint(
             self.model.T, rule=self.prevent_overcommitment
@@ -119,6 +136,7 @@ class DayAheadMarketOptimizationModel:
                 / self.efficiency
                 + self.da_prices_forecast[t] * model.spot_sell[t] * self.efficiency
             )
+        revenue += - self.cost_of_use * model.delta_cycles
         return revenue
 
     def charge_definition(self, model, t):
@@ -166,10 +184,13 @@ class DayAheadMarketOptimizationModel:
     def max_charge_power_constraint(self, model, t):
         return model.charge[t] <= self.charge_rate
 
-    def max_cycles_constraint(self, model):
-        return sum(
-            model.charge[t] + model.discharge[t] for t in model.T
-        ) <= self.max_cycles * (2 * self.battery_capacity)
+    def delta_cycles_def(self, model):
+        return model.delta_cycles == sum(
+            (model.charge[t] + model.discharge[t]) * self.dt for t in model.T
+        ) / (2 * self.battery_capacity)
+
+    def lifetime_cycles_limit(self, model):
+        return self.cycles_used_init + model.delta_cycles <= self.max_cycles
 
     def prevent_overcommitment(self, model, t):
         return model.charge[t] <= self.charge_rate
@@ -214,6 +235,8 @@ class DayAheadMarketOptimizationModel:
         logger.info("Charge: {}", self.charge_values)
         logger.info("Discharge: {}", self.discharge_values)
         logger.info("Revenue: {}", self.revenue)
+        logger.info("Delta cycles value: {}", pyo.value(self.model.delta_cycles))
+        logger.info("Lifetime cycles value: {}", self.cycles_used_init + pyo.value(self.model.delta_cycles))
 
     def _create_result_df(self) -> pd.DataFrame:
         results = pd.DataFrame.from_dict(

@@ -9,33 +9,16 @@ C_RATE = 1
 RTE = 0.86
 MAX_CYCLES_PER_YEAR = 365
 MAX_CYCLES_PER_DAY = 1
+MAX_CYCLES_LIFETIME = 5
 
 
 # Rolling Intrinsic specific
 BUCKET_SIZE = 15
 MIN_TRADES = 10
 
-# Data timeframe configuration (importnant for naming csv files, etc.)
-DATA_START = pd.Timestamp(year=2019, month=1, day=1, tz="Europe/Berlin")
-DATA_END   = pd.Timestamp(year=2019, month=2, day=1, tz="Europe/Berlin")  # exklusive Obergrenze
-
-
-# Validation timeframe
-VAL_FRACTION = 0.1
-# Test timeframe
-TEST_FRACTION = 0.1
-
-# For single market day ahead optimizer, rolling intrinsic and myopic market
-START = DATA_START
-END   = DATA_END
-
-# Problematic dates that need to be removed from the data for the rolling intrinsic algorithm to work
-PROBLEMATIC_DATES = [
-    pd.Timestamp("2020-11-15").date(),
-    pd.Timestamp("2020-12-27").date(),
-    pd.Timestamp("2020-12-31").date(),
-    
-]
+# Define model horizon
+START = pd.Timestamp(year=2019, month=1, day=1, tz="Europe/Berlin")
+END = pd.Timestamp(year=2019, month=1, day=4, tz="Europe/Berlin")
 
 # ----------------------------------------------
 # MODELLING CONFIGURATIONS
