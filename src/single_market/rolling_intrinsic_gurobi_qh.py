@@ -484,7 +484,6 @@ def simulate_period(
     start_day: pd.Timestamp,
     end_day: pd.Timestamp,
     discount_rate: float,
-    #bucket_size: int,
     c_rate: float,
     roundtrip_eff: float,
     max_cycles: float,
@@ -512,7 +511,6 @@ def simulate_period(
         f"Start Day: {start_day}\n"
         f"End Day: {end_day}\n"
         f"Discount Rate: {discount_rate}\n"
-        #f"Bucket Size: {bucket_size}\n"
         f"C Rate: {c_rate}\n"
         f"Roundtrip Efficiency: {roundtrip_eff}\n"
         f"Max Cycles: {max_cycles}\n"
@@ -530,9 +528,7 @@ def simulate_period(
         "ri_basic",
         "qh",
         str(year),
-        "bs"
-       # + str(bucket_size)
-        + "cr"
+        "cr"
         + str(c_rate)
         + "rto"
         + str(roundtrip_eff)

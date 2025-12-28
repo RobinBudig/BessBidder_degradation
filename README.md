@@ -145,6 +145,9 @@ Run `02b_single_market_rolling_intrinsic_h.py` with CLI arguments:
 python 02b_single_market_rolling_intrinsic_h.py
 ```
 
+To increase the speed of the rolling intrinsic algorithm we switched the implementation to gurobipy. To use this one needs a gurobipy license which can be obtained free of charge for academics.
+
+
 Logs will be saved in `output/single_market/rolling_intrinsic/ri_basic/`
 
 ## Multi-Market Bidding
@@ -205,7 +208,7 @@ This project was developed in collaboration between members of the Karlsruhe Ins
 
 | Name                    | Role & Contribution                                                                 |
 |-------------------------|-------------------------------------------------------------------------------------|
-| **Kim K. Miskiw**       | Project lead, DRL model implementation, results nalaysis, repo maintanace, documentation, debugging and validation, writing               |
+| **Kim K. Miskiw**       | Project lead, DRL model implementation, results analysis, repo maintenance, documentation, debugging and validation, writing               |
 | **Jan Ludwig**          | Data pipeline (ENTSO-E, EPEX), DRL model implementation, MILP modelling, rolling intrinsic strategies, debugging and validation              |
 | **Leo Semmelmann**      | Data pipeline (ENTSO-E, EPEX), rolling intrinsic strategies, conceptual support, review               |
 | **Christof Weinhardt** | Supervisory role, conceptual support     
