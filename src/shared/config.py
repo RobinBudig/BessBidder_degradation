@@ -9,7 +9,7 @@ C_RATE = 1
 RTE = 0.86
 MAX_CYCLES_PER_YEAR = 365
 MAX_CYCLES_PER_DAY = 1
-MAX_CYCLES_LIFETIME = 66
+MAX_CYCLES_LIFETIME = 5
 
 
 # Rolling Intrinsic specific
@@ -18,7 +18,7 @@ MIN_TRADES = 10
 
 # Define model horizon
 START = pd.Timestamp(year=2019, month=1, day=1, tz="Europe/Berlin")
-END = pd.Timestamp(year=2024, month=1, day=1, tz="Europe/Berlin")
+END = pd.Timestamp(year=2019, month=1, day=4, tz="Europe/Berlin")
 
 # ----------------------------------------------
 # MODELLING CONFIGURATIONS
