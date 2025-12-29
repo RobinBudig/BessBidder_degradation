@@ -235,6 +235,7 @@ class DayAheadMarketOptimizationModel:
         logger.info("Charge: {}", self.charge_values)
         logger.info("Discharge: {}", self.discharge_values)
         logger.info("Revenue: {}", self.revenue)
+        logger.info("COU: {}", self.cost_of_use)
         logger.info("Delta cycles value: {}", pyo.value(self.model.delta_cycles))
         logger.info("Lifetime cycles value: {}", self.cycles_used_init + pyo.value(self.model.delta_cycles))
 

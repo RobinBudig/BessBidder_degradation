@@ -9,16 +9,21 @@ C_RATE = 1
 RTE = 0.86
 MAX_CYCLES_PER_YEAR = 365
 MAX_CYCLES_PER_DAY = 1
-MAX_CYCLES_LIFETIME = 5
+MAX_CYCLES_LIFETIME = 10000
+Lifetime_YEARS = 10
 
+#MILP Specific
+START_END_SOC = 0.0
+EFFICIENCY = RTE**0.5
+BATTERY_CAPACITY = 1  # in MWh
 
 # Rolling Intrinsic specific
 BUCKET_SIZE = 15
 MIN_TRADES = 10
 
 # Define model horizon
-START = pd.Timestamp(year=2019, month=1, day=1, tz="Europe/Berlin")
-END = pd.Timestamp(year=2019, month=1, day=4, tz="Europe/Berlin")
+START = pd.Timestamp(year=2020, month=1, day=1, tz="Europe/Berlin")
+END = pd.Timestamp(year=2020, month=1, day=29, tz="Europe/Berlin")
 
 # ----------------------------------------------
 # MODELLING CONFIGURATIONS

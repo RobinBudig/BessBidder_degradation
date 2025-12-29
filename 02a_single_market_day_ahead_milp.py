@@ -17,17 +17,20 @@ import os
 import pandas as pd
 from dotenv import load_dotenv
 import pyomo.environ as pyo
-
+from src.shared.calculate_cost_of_use import get_optimal_cou
 from src.single_market.day_ahead_market_optimizer import DayAheadMarketOptimizationModel
 from src.shared.config import (
     C_RATE,
     MAX_CYCLES_LIFETIME,
-    RTE,
     START,
     END,
     OUTPUT_DIR_DA,
     FILENAME_DA,
     DATA_PATH_DA,
+    BATTERY_CAPACITY,
+    EFFICIENCY,
+    START_END_SOC,
+
 )
 
 load_dotenv()
@@ -36,14 +39,15 @@ load_dotenv()
 OUTPUT_DIR = OUTPUT_DIR_DA
 FILENAME = FILENAME_DA
 
-# Battery parameters
-cost_of_use = 10 # in EUR/FEC
-BATTERY_CAPACITY = 1  # in MWh
+# Battery parameters from config.py
+BATTERY_CAPACITY = BATTERY_CAPACITY
 CHARGE_RATE = C_RATE * BATTERY_CAPACITY  # in MW
 DISCHARGE_RATE = C_RATE * BATTERY_CAPACITY  # in MW
-EFFICIENCY = RTE**0.5
+EFFICIENCY = EFFICIENCY
 MAX_CYCLES = MAX_CYCLES_LIFETIME
-START_END_SOC = 0.0
+START_END_SOC = START_END_SOC
+
+cost_of_use = get_optimal_cou() # in EUR/FEC
 
 
 def load_data():
@@ -111,6 +115,11 @@ def main():
         os.makedirs(OUTPUT_DIR)
 
     final_df.to_csv(os.path.join(OUTPUT_DIR, FILENAME))
+
+    final_df["profit"] = final_df["discharge_revenues"] + final_df["charge_costs"]
+
+    cumulative_profit = final_df["profit"].sum()
+    print(f"Total Revenue:{cumulative_profit}")
 
 
 if __name__ == "__main__":
