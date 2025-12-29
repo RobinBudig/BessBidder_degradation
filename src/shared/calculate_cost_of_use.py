@@ -11,7 +11,7 @@ from src.shared.config import (
     END,
     DATA_PATH_DA,
     MAX_CYCLES_LIFETIME,
-    Lifetime_YEARS,
+    LIFETIME_YEARS,
     BATTERY_CAPACITY,
     EFFICIENCY,
     START_END_SOC,
@@ -32,7 +32,7 @@ START_END_SOC = START_END_SOC
 
 # Battery degradation parameters from config.py
 MAX_CYCLES_LIFETIME = float(MAX_CYCLES_LIFETIME)
-Lifetime_YEARS = float(Lifetime_YEARS)
+LIFETIME_YEARS = float(LIFETIME_YEARS)
 
 # --- COU calibration (subgradient method) ---
 MAX_ITERATIONS = 30
@@ -67,9 +67,9 @@ def main():
     data = load_data()
 
     # Calculate target number of cycles for the analyzed time horizon
-    # based on Lifetime_YEARS and MAX_CYCLES_LIFETIME
+    # based on LIFETIME_YEARS_YEARS and MAX_CYCLES_LIFETIME
     horizon_years = (END - START).days / 365.25
-    target_cycles = MAX_CYCLES_LIFETIME * (horizon_years / Lifetime_YEARS)
+    target_cycles = MAX_CYCLES_LIFETIME * (horizon_years / LIFETIME_YEARS)
 
     #Log COU iterations for transparency
     cou_history = []
@@ -134,9 +134,11 @@ def main():
         if mismatch >= -0.01 * target_cycles:
             cou = max(0.0, cou / 1.01)  # decrease very slightly if close to target cycles
         elif mismatch >= -0.1 * target_cycles:
-            cou = max(0.0, cou / 1.05)  # decrease very slightly if close to target cycles
+            cou = max(0.0, cou / 1.05)
         elif mismatch >= -0.2 * target_cycles:
-            cou = max(0.0, cou / 1.1)  # decrease slightly if close to target cycles
+            cou = max(0.0, cou / 1.1)
+        elif mismatch >= -0.5 * target_cycles:
+            cou = max(0.0, cou / 1.5)  # decrease slightly if close to target cycles
         else:
             cou = max(0.0, cou/2) #decrease heavily if far away from target cycles
 

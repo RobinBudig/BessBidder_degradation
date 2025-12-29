@@ -11,6 +11,7 @@ MAX_CYCLES_PER_YEAR = 365
 MAX_CYCLES_PER_DAY = 1
 MAX_CYCLES_LIFETIME = 10000
 Lifetime_YEARS = 10
+LIFETIME_YEARS = 20
 
 #MILP Specific
 START_END_SOC = 0.0
@@ -21,9 +22,26 @@ BATTERY_CAPACITY = 1  # in MWh
 BUCKET_SIZE = 15
 MIN_TRADES = 10
 
-# Define model horizon
-START = pd.Timestamp(year=2020, month=1, day=1, tz="Europe/Berlin")
-END = pd.Timestamp(year=2020, month=1, day=29, tz="Europe/Berlin")
+# Data timeframe configuration (important for naming csv files, etc.)
+DATA_START = pd.Timestamp(year=2019, month=1, day=1, tz="Europe/Berlin")
+DATA_END = pd.Timestamp(year=2023, month=12, day=30, tz="Europe/Berlin")  # exklusive Obergrenze
+
+# Validation timeframe
+VAL_FRACTION = 0.1
+# Test timeframe
+TEST_FRACTION = 0.1
+
+# For single market day ahead optimizer, rolling intrinsic and myopic market
+START = DATA_START
+END = DATA_END
+
+# Problematic dates that need to be removed from the data for the rolling intrinsic algorithm to work
+PROBLEMATIC_DATES = [
+    pd.Timestamp("2020-11-15").date(),
+    pd.Timestamp("2020-12-27").date(),
+    pd.Timestamp("2020-12-31").date(),
+
+]
 
 # ----------------------------------------------
 # MODELLING CONFIGURATIONS
@@ -36,7 +54,6 @@ FILENAME_DA = "day_ahead_milp_results_{}_to_{}.csv".format(
     START.strftime("%Y-%m-%d"), END.strftime("%Y-%m-%d")
 )
 DATA_PATH_DA = Path("data", "data_2019-01-01_2024-01-01_hourly.csv")
-
 
 # 03 MYOPIC MULTI-MARKET CONFIGURATION
 
@@ -51,7 +68,7 @@ TRAINING_STEPS_BASIC = 300000
 
 DATA_PATH = Path("data", "simplified_data_jan_with_exaa_and_id_full")
 
-PRECOMPUTED_VWAP_PATH = os.path.join( "data/precomputed_vwaps")
+PRECOMPUTED_VWAP_PATH = os.path.join("data/precomputed_vwaps")
 
 COORDINATED_MODEL_NAME_QH = "model_intelligent_quarterhourly_products"
 TRAIN_CSV_NAME = "basic_battery_dam_train_log_v3.csv"
