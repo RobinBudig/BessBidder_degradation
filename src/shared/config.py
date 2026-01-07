@@ -24,7 +24,7 @@ MIN_TRADES = 10
 
 # Data timeframe configuration (important for naming csv files, etc.)
 DATA_START = pd.Timestamp(year=2019, month=1, day=1, tz="Europe/Berlin")
-DATA_END = pd.Timestamp(year=2023, month=12, day=30, tz="Europe/Berlin")  # exklusive Obergrenze
+DATA_END = pd.Timestamp(year=2019, month=1, day=4, tz="Europe/Berlin")  # exklusive Obergrenze
 
 # Validation timeframe
 VAL_FRACTION = 0.1
