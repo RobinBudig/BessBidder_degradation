@@ -18,7 +18,8 @@ load_dotenv()
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-COU = 1
+from src.shared.calculate_cost_of_use import get_optimal_cou
+COU = get_optimal_cou() # in EUR/FEC
 
 if __name__ == "__main__":
     simulate_period(
@@ -33,10 +34,13 @@ if __name__ == "__main__":
     )
 
 import pandas as pd
+import os
 path = f"/Users/robin/PycharmProjects/BessBidder_degradation/output/single_market/rolling_intrinsic/ri_basic/qh/2019/cr1rto0.86cou{COU}mt10"
 profits = os.path.join(path, "profit.csv")
 df = pd.read_csv(profits)
 total_profit = df["profit"].sum()
+cycles_a = df["cycles"].sum()
+#print(f"Total cycles (real): {cycles_a:.2f}")
 
 #Rückrechnung, wieviel gecycled wurde über die quanity --> Virtuell + real
 total_cycles = 0

@@ -421,7 +421,6 @@ def solve_bucket_with_persistent_model(
         difference_h = abs((i - execution_time).total_seconds() / 3600.0)
 
         cou_weight = max(0.0, 1.0 - difference_h/ max_difference_h)
-        print(difference_h, cou_weight)
 
         obj += term
         obj -= cou * delta_cycles * cou_weight
