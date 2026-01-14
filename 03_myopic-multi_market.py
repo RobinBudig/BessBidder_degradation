@@ -31,7 +31,8 @@ from src.shared.config import (
     MIN_TRADES,
     RTE, START, END
 )
-
+from src.shared.calculate_cost_of_use import OPTIMAL_COU
+COU = OPTIMAL_COU
 if __name__ == "__main__":
     # Path where output logs and results will be stored
     versioned_log_path = LOGGING_PATH_MYOPIC
@@ -54,11 +55,12 @@ if __name__ == "__main__":
         start_day=START,
         end_day=END,
         discount_rate=0,
-        bucket_size=BUCKET_SIZE,
+        #bucket_size=BUCKET_SIZE,
         c_rate=C_RATE,
         roundtrip_eff=RTE,
-        max_cycles=MAX_CYCLES_PER_YEAR,
+        max_cycles=10e6,
         min_trades=MIN_TRADES,
+        cou = COU
     )
 
     logger.info(
