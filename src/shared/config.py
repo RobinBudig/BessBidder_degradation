@@ -48,7 +48,7 @@ PROBLEMATIC_DATES = [
 
 # 02 SINGLE MARKET CONFIGURATION
 
-OUTPUT_DIR_DA = os.path.join("output", "myopic_multi_market", "day_ahead_milp")
+OUTPUT_DIR_DA = os.path.join("output", "single_market", "day_ahead_milp")
 # dynamically define filename based on start and end date
 FILENAME_DA = "day_ahead_milp_results_{}_to_{}.csv".format(
     START.strftime("%Y-%m-%d"), END.strftime("%Y-%m-%d")

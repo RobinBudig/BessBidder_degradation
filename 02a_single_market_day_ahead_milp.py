@@ -17,7 +17,7 @@ import os
 import pandas as pd
 from dotenv import load_dotenv
 import pyomo.environ as pyo
-from src.shared.calculate_cost_of_use import get_optimal_cou
+from src.shared.calculate_cost_of_use import OPTIMAL_COU
 from src.single_market.day_ahead_market_optimizer import DayAheadMarketOptimizationModel
 from src.shared.config import (
     C_RATE,
@@ -47,7 +47,7 @@ EFFICIENCY = EFFICIENCY
 MAX_CYCLES = MAX_CYCLES_LIFETIME
 START_END_SOC = START_END_SOC
 
-cost_of_use = get_optimal_cou() # in EUR/FEC
+cost_of_use = OPTIMAL_COU # in EUR/FEC
 
 
 def load_data():

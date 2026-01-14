@@ -299,10 +299,10 @@ def build_battery_model(
         )
         netting_constr[i] = c
 
-    # Cycle constraint: sum of charged energy <= allowed_cycles * cap
+    # Cycle constraint: Cycles <= allowed_cycles
     # RHS will be updated per bucket via max_cycles_constr.RHS
     max_cycles_constr = m.addConstr(
-        gp.quicksum(net_buy[i] * efficiency / 4.0 for i in T) <= 0.0,
+        gp.quicksum((net_buy[i] + net_sell[i]) / 4.0 for i in T) / 2 * cap <= 0.0,
         name="MaxCycles",
     )
 
@@ -321,7 +321,7 @@ def build_battery_model(
         "efficiency": efficiency,
     }
 
-    return m, vars_dict, netting_constr, max_cycles_constr
+    return m, vars_dict, netting_constr, max_cycles_constr, efficiency, cap
 
 
 def solve_bucket_with_persistent_model(
@@ -334,6 +334,9 @@ def solve_bucket_with_persistent_model(
     discount_rate: float,
     prev_net_trades: pd.DataFrame,
     allowed_cycles: float,
+    cou: float,
+    efficiency: float,
+    cap: float,
 ) -> Tuple[pd.DataFrame | None, pd.DataFrame, float]:
     """
     Solve one intraday bucket using a persistent battery model.
@@ -360,7 +363,7 @@ def solve_bucket_with_persistent_model(
     eps = 0.01
 
     # 2) Set RHS of cycle constraint
-    max_cycles_constr.RHS = allowed_cycles * 1.0  # *cap (if cap != 1)
+    max_cycles_constr.RHS = allowed_cycles
 
     # 3) Update netting RHS and variable bounds for NaNs
     for i in T:
@@ -405,7 +408,17 @@ def solve_bucket_with_persistent_model(
                 - current_buy_qh[i] * (price_buy_adj + eps)
             ) / 4.0
 
+        # Counts the number of cycles
+        delta_cycles = gp.quicksum((net_buy[i] + net_sell[i]) / 4.0 for i in T) / 2 * cap
+
+        # max time distance from product buy/sell to execution time
+        max_difference_h = 32.0
+        difference_h = abs((i - execution_time).total_seconds() / 3600.0)
+
+        cou_weight = max(0.0, 1.0 - difference_h / max_difference_h)
+
         obj += term
+        obj -= cou * delta_cycles * cou_weight
 
     m.setObjective(obj, gp.GRB.MAXIMIZE)
 
@@ -540,6 +553,7 @@ def simulate_days_stacked_quarterhourly_products(
     roundtrip_eff: float,
     max_cycles: float,
     min_trades: float,  # kept for compatibility; currently unused
+    cou: float,
     vwaps_base_path: str = PRECOMPUTED_VWAP_PATH,
 ) -> None:
     """
@@ -562,6 +576,7 @@ def simulate_days_stacked_quarterhourly_products(
         #f"Bucket Size: {bucket_size}\n"
         f"C Rate: {c_rate}\n"
         f"Roundtrip Efficiency: {roundtrip_eff}\n"
+        f"COU {cou}\n"
         f"Max Cycles: {max_cycles}\n"
         f"Min Trades: {min_trades}"
     )
@@ -638,7 +653,7 @@ def simulate_days_stacked_quarterhourly_products(
         )
 
         # Build persistent Gurobi model
-        m, vars_dict, netting_constr, max_cycles_constr = build_battery_model(
+        m, vars_dict, netting_constr, max_cycles_constr, efficiency, cap = build_battery_model(
             T, cap=1.0, c_rate=c_rate, roundtrip_eff=roundtrip_eff
         )
 
@@ -661,11 +676,12 @@ def simulate_days_stacked_quarterhourly_products(
 
         days_left = (end_day - current_day).days
         days_done = (current_day - start_day).days
-        # Same somewhat ad-hoc logic as in legacy test script
-        allowed_cycles = 1 + max(0, days_done - current_cycles)
+        # max_cycles as a cap per day
+        allowed_cycles = max_cycles + max(0, days_done - current_cycles)
 
         logger.info(f"Days left:        {days_left}")
-        logger.info(f"Current cycles:   {current_cycles:.3f}")
+        # current_cycles is a a cum. value
+        logger.info(f"Current cycles (kum.): {current_cycles:.3f}")
         logger.info(f"Allowed cycles/d: {allowed_cycles:.3f}")
 
         # Intraday simulation over all buckets
@@ -734,6 +750,9 @@ def simulate_days_stacked_quarterhourly_products(
                     discount_rate=discount_rate,
                     prev_net_trades=net_trades,
                     allowed_cycles=allowed_cycles,
+                    cou=cou,
+                    efficiency=efficiency,
+                    cap=cap,
                 )
                 # trades may be empty, but concat is robust
                 all_trades = pd.concat(
@@ -755,7 +774,9 @@ def simulate_days_stacked_quarterhourly_products(
 
         # Net trades from final state -> cycle update
         net_trades = get_net_trades(all_trades, trading_end)
-        current_cycles += net_trades["net_buy"].sum() / 4.0 * efficiency
+        # Calculate the cycles in new_cycles and save the cum. in current_cycles
+        new_cycles = (net_trades["net_buy"].sum() + net_trades["net_sell"].sum()) / 8 * cap
+        current_cycles += new_cycles
 
         # Store trades
         trades_file = os.path.join(
@@ -768,7 +789,7 @@ def simulate_days_stacked_quarterhourly_products(
             [
                 profits,
                 pd.DataFrame(
-                    [[current_day, daily_profit, current_cycles]],
+                    [[current_day, daily_profit, new_cycles]],
                     columns=["day", "profit", "cycles"],
                 ),
             ],
@@ -778,8 +799,8 @@ def simulate_days_stacked_quarterhourly_products(
 
         logger.info(
             f"Finished day {current_day:%Y-%m-%d}: "
-            f"profit={daily_profit:.2f}, cycles={current_cycles:.3f}"
+            f"profit={daily_profit:.2f}, cycles={new_cycles:.3f}"
         )
-
+        print(f"Total cycles (real) = {current_cycles}")
         # Next day
         current_day = current_day + pd.Timedelta(days=1) + pd.Timedelta(hours=2)

@@ -18,8 +18,8 @@ load_dotenv()
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-from src.shared.calculate_cost_of_use import get_optimal_cou
-COU = get_optimal_cou() # in EUR/FEC
+from src.shared.calculate_cost_of_use import OPTIMAL_COU
+COU = OPTIMAL_COU # in EUR/FEC
 
 if __name__ == "__main__":
     simulate_period(

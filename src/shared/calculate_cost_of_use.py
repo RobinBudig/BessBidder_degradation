@@ -153,7 +153,6 @@ def get_optimal_cou():
     return optimal_cou
 OPTIMAL_COU = get_optimal_cou()
 
-if __name__ == "__main__":
-    main()
+
 
 
