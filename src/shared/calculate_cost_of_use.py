@@ -35,7 +35,7 @@ MAX_CYCLES_LIFETIME = float(MAX_CYCLES_LIFETIME)
 LIFETIME_YEARS = float(LIFETIME_YEARS)
 
 # --- COU calibration (subgradient method) ---
-MAX_ITERATIONS = 30
+MAX_ITERATIONS = 1000
 ALLOWED_CYCLES_ERROR = 0.5  # stop when within this many cycles of the target
 
 
@@ -132,13 +132,13 @@ def main():
 
         # COU is decreased as long as too few cycles are used
         if mismatch >= -0.01 * target_cycles:
-            cou = max(0.0, cou / 1.01)  # decrease very slightly if close to target cycles
+            cou = max(0.0, cou / 1.001)  # decrease very slightly if close to target cycles
         elif mismatch >= -0.1 * target_cycles:
-            cou = max(0.0, cou / 1.05)
+            cou = max(0.0, cou / 1.005)
         elif mismatch >= -0.2 * target_cycles:
-            cou = max(0.0, cou / 1.1)
+            cou = max(0.0, cou / 1.01)
         elif mismatch >= -0.5 * target_cycles:
-            cou = max(0.0, cou / 1.5)  # decrease slightly if close to target cycles
+            cou = max(0.0, cou / 1.05)  # decrease slightly if close to target cycles
         else:
             cou = max(0.0, cou/2) #decrease heavily if far away from target cycles
 
@@ -151,8 +151,11 @@ def main():
 def get_optimal_cou():
     optimal_cou = main()
     return optimal_cou
-OPTIMAL_COU = get_optimal_cou()
+#OPTIMAL_COU = get_optimal_cou()
+#OPTIMAL_COU = 6.923932
+#OPTIMAL_COU = 5.389604
+OPTIMAL_COU = 4
 
-
-
-
+horizon_years = (END - START).days / 365.25
+target_cycles = MAX_CYCLES_LIFETIME * (horizon_years / LIFETIME_YEARS)
+print(f"Target cycles: {target_cycles:.2f}")

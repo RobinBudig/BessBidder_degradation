@@ -44,10 +44,19 @@ cycles_a = df["cycles"].sum()
 
 #Rückrechnung, wieviel gecycled wurde über die quanity --> Virtuell + real
 total_cycles = 0
-Dates = ["2019-01-01", "2019-01-02", "2019-01-03"]
-for date in Dates:
-    trades = os.path.join(path, f"trades/trades_{date}.csv")
+
+end = END.normalize() + pd.Timedelta(days=-1)
+start = START.normalize()
+for date in pd.date_range(start,end, freq="D"):
+
+    date_str = date.strftime("%Y-%m-%d")
+
+    trades = os.path.join(path, f"trades/trades_{date_str}.csv")
     df = pd.read_csv(trades)
+
+    if not os.path.exists(trades):
+        print(f"No trades for {date_str}")
+        continue
     total_cycles += (df["quantity"].sum()/8) #/4 because of 15 min and /2 because of cap
 print(f"Total cycles (virtual + real): {total_cycles:.2f}")
 
