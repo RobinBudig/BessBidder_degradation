@@ -1,5 +1,6 @@
 import warnings
-
+import pandas as pd
+import os
 from dotenv import load_dotenv
 
 from src.shared.config import (
@@ -33,16 +34,15 @@ if __name__ == "__main__":
         cou = COU,
     )
 
-import pandas as pd
-import os
-path = f"/Users/robin/PycharmProjects/BessBidder_degradation/output/single_market/rolling_intrinsic/ri_basic/qh/2019/cr1rto0.86cou{COU}mt10"
+
+path = f"output/single_market/rolling_intrinsic/ri_basic/qh/2019/cr1rto0.86cou{COU}mt10"
 profits = os.path.join(path, "profit.csv")
 df = pd.read_csv(profits)
 total_profit = df["profit"].sum()
 cycles_a = df["cycles"].sum()
-#print(f"Total cycles (real): {cycles_a:.2f}")
 
-#Rückrechnung, wieviel gecycled wurde über die quanity --> Virtuell + real
+
+#Calculate cycles by energy quantity traded --> Virtual + Real
 total_cycles = 0
 
 end = END.normalize() + pd.Timedelta(days=-1)
@@ -57,7 +57,7 @@ for date in pd.date_range(start,end, freq="D"):
     if not os.path.exists(trades):
         print(f"No trades for {date_str}")
         continue
-    total_cycles += (df["quantity"].sum()/8) #/4 because of 15 min and /2 because of cap
+    total_cycles += (df["quantity"].sum()/8) #/4 because of 15 min and /2 because of capacity
 print(f"Total cycles (virtual + real): {total_cycles:.2f}")
 
 print(f"Total profit: {total_profit:.2f}")

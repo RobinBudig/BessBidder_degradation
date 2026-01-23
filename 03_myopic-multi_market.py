@@ -66,16 +66,19 @@ if __name__ == "__main__":
     logger.info(
         "Finished calculating intelligently stacked rolling intrinsic revenues with quarterhourly products."
     )
-path = f"/Users/robin/PycharmProjects/BessBidder_degradation/output/myopic_multi_market/rolling_intrinsic_stacked_on_day_ahead_qh/bs15cr1rto0.86mc365mt10/profit.csv"
+
+#Further Results:
+
+path = f"output/myopic_multi_market/rolling_intrinsic_stacked_on_day_ahead_qh/bs15cr1rto0.86mc365mt10/profit.csv"
 profits = os.path.join(path)
 df = pd.read_csv(profits)
 total_profit = df["profit"].sum()
-path2 = f"/Users/robin/PycharmProjects/BessBidder_degradation/output/single_market/day_ahead_milp/day_ahead_milp_results_2019-04-01_to_2020-03-27.csv"
+path2 = f"output/single_market/day_ahead_milp/day_ahead_milp_results_2019-04-01_to_2020-03-27.csv"
 df2 = pd.read_csv(path2)
 df2["profit"] = df2["discharge_revenues"] + df2["charge_costs"]
 total_profit += df2["profit"].sum()
 
-#Rückrechnung, wieviel gecycled wurde über die quanity --> Virtuell + real
+#Calculate cycles by energy quantity traded --> Virtual + Real
 total_cycles = 0
 
 end = END.normalize() + pd.Timedelta(days=-1)
@@ -84,7 +87,7 @@ for date in pd.date_range(start,end, freq="D"):
 
     date_str = date.strftime("%Y-%m-%d")
 
-    trades = os.path.join(path, f"/Users/robin/PycharmProjects/BessBidder_degradation/output/myopic_multi_market/rolling_intrinsic_stacked_on_day_ahead_qh/bs15cr1rto0.86mc365mt10/trades/trades_{date_str}.csv")
+    trades = os.path.join(path, f"output/myopic_multi_market/rolling_intrinsic_stacked_on_day_ahead_qh/bs15cr1rto0.86mc365mt10/trades/trades_{date_str}.csv")
     df = pd.read_csv(trades)
 
     if not os.path.exists(trades):
@@ -92,10 +95,5 @@ for date in pd.date_range(start,end, freq="D"):
         continue
     total_cycles += (df["quantity"].sum()/8) #/4 because of 15 min and /2 because of cap
 print(f"Total cycles (virtual + real): {total_cycles:.2f}")
-
-
-
-
-
 
 print(f"Total profit: {total_profit:.2f}")
