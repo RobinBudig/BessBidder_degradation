@@ -7,10 +7,9 @@ from pathlib import Path
 # Config file for parameters of the case study
 C_RATE = 1
 RTE = 0.86
-MAX_CYCLES_PER_YEAR = 365
-MAX_CYCLES_PER_DAY = 1
+MAX_CYCLES_PER_YEAR = 10e6
+MAX_CYCLES_PER_DAY = 10e6
 MAX_CYCLES_LIFETIME = 10000
-Lifetime_YEARS = 10
 LIFETIME_YEARS = 20
 
 #MILP Specific

@@ -18,6 +18,9 @@ from src.shared.config import (
     C_RATE,
 )
 
+#Run this script to find the optimal COU
+#After you have found a optimal COU, set it below, so that it doesn't have to be recalculated every time
+
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 load_dotenv()
@@ -153,8 +156,8 @@ def get_optimal_cou():
     return optimal_cou
 #OPTIMAL_COU = get_optimal_cou()
 #OPTIMAL_COU = 6.923932
-#OPTIMAL_COU = 5.389604
-OPTIMAL_COU = 4
+OPTIMAL_COU = 5.389604
+
 
 horizon_years = (END - START).days / 365.25
 target_cycles = MAX_CYCLES_LIFETIME * (horizon_years / LIFETIME_YEARS)
